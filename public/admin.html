@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ronja Tattoo Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="admin-body">
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <main class="admin-shell">
+      <section class="glass-card admin-panel" id="setup-panel" hidden>
+        <p class="eyebrow">Ersteinrichtung</p>
+        <h1>Admin-Zugang anlegen</h1>
+        <p class="section-text">
+          Beim ersten Start kann Ronja hier ihr Passwort setzen. Danach ist der
+          Zugang nur noch per Login erreichbar.
+        </p>
+        <form id="setup-form" class="stack-form">
+          <label>
+            <span>Neues Passwort</span>
+            <input
+              name="password"
+              type="password"
+              minlength="10"
+              autocomplete="new-password"
+              required
+            />
+          </label>
+          <label>
+            <span>Passwort wiederholen</span>
+            <input
+              name="confirmPassword"
+              type="password"
+              minlength="10"
+              autocomplete="new-password"
+              required
+            />
+          </label>
+          <button class="button primary" type="submit">Zugang einrichten</button>
+        </form>
+      </section>
+
+      <section class="glass-card admin-panel" id="login-panel" hidden>
+        <p class="eyebrow">Admin Login</p>
+        <h1>Ronja Tattoo Dashboard</h1>
+        <form id="login-form" class="stack-form">
+          <label>
+            <span>Passwort</span>
+            <input name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="button primary" type="submit">Anmelden</button>
+        </form>
+      </section>
+
+      <section class="admin-dashboard" id="dashboard" hidden>
+        <header class="glass-card dashboard-header">
+          <div>
+            <p class="eyebrow">Dashboard</p>
+            <h1>Anfragen & Galerie verwalten</h1>
+          </div>
+          <div class="dashboard-actions">
+            <a class="button secondary" href="/">Zur Website</a>
+            <button class="button ghost" id="logout-button" type="button">Logout</button>
+          </div>
+        </header>
+
+        <section class="dashboard-grid">
+          <article class="glass-card">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">Bookings</p>
+                <h2>Termin-Anfragen</h2>
+              </div>
+            </div>
+            <div class="booking-list" id="booking-list"></div>
+          </article>
+
+          <article class="glass-card">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">Upload</p>
+                <h2>Galeriebild hinzufügen</h2>
+              </div>
+            </div>
+            <form id="upload-form" class="stack-form" enctype="multipart/form-data">
+              <label>
+                <span>Titel</span>
+                <input name="title" type="text" maxlength="80" />
+              </label>
+              <label>
+                <span>Beschreibung</span>
+                <textarea name="description" rows="4" maxlength="240"></textarea>
+              </label>
+              <label>
+                <span>Tags</span>
+                <input name="tags" type="text" maxlength="120" placeholder="fine line, floral" />
+              </label>
+              <label>
+                <span>Bilddatei</span>
+                <input name="image" type="file" accept="image/png,image/jpeg,image/webp" required />
+              </label>
+              <button class="button primary" type="submit">Bild hochladen</button>
+            </form>
+          </article>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">Galerie</p>
+              <h2>Veröffentlichte Motive</h2>
+            </div>
+          </div>
+          <div class="gallery-grid admin-gallery-grid" id="admin-gallery-grid"></div>
+        </section>
+      </section>
+
+      <p class="status-message" id="admin-message" aria-live="polite"></p>
+    </main>
+
+    <script src="/admin.js" defer></script>
+  </body>
+</html>

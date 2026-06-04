@@ -1,0 +1,3 @@
+node_modules/
+storage/uploads/*
+!storage/uploads/.gitkeep
