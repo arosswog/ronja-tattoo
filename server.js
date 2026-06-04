@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const express = require("express");
@@ -8,8 +9,16 @@ const multer = require("multer");
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
-const DATA_DIR = path.join(ROOT_DIR, "data");
-const STORAGE_DIR = path.join(ROOT_DIR, "storage");
+// On platforms with a read-only filesystem (e.g. Vercel serverless functions)
+// only the system temp directory is writable, so allow the writable locations
+// to be overridden. Locally the data/ and storage/ folders are used as before.
+const WRITABLE_BASE_DIR = process.env.RONJA_DATA_DIR
+  ? path.resolve(process.env.RONJA_DATA_DIR)
+  : process.env.VERCEL
+  ? path.join(os.tmpdir(), "ronja-tattoo")
+  : ROOT_DIR;
+const DATA_DIR = path.join(WRITABLE_BASE_DIR, "data");
+const STORAGE_DIR = path.join(WRITABLE_BASE_DIR, "storage");
 const UPLOADS_DIR = path.join(STORAGE_DIR, "uploads");
 const BOOKINGS_FILE = path.join(DATA_DIR, "bookings.json");
 const GALLERY_FILE = path.join(DATA_DIR, "gallery.json");
