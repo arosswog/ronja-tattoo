@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 const express = require("express");
+const { rateLimit } = require("express-rate-limit");
 const multer = require("multer");
 
 const ROOT_DIR = __dirname;
@@ -133,7 +134,7 @@ function safeCompare(left, right) {
 }
 
 function getClientKey(req) {
-  return req.ip || req.headers["x-forwarded-for"] || "unknown";
+  return req.ip || "unknown";
 }
 
 function clearExpiredSessions() {
@@ -248,6 +249,37 @@ function createApp() {
 
   const app = express();
   const upload = createUploadMiddleware();
+  const limiterOptions = {
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    handler: (_, res) =>
+      jsonError(
+        res,
+        429,
+        "Zu viele Anfragen in kurzer Zeit. Bitte warte einen Moment und versuche es erneut."
+      ),
+  };
+  const adminPageLimiter = rateLimit({
+    ...limiterOptions,
+    windowMs: 1000 * 60,
+    limit: 60,
+  });
+  const bookingLimiter = rateLimit({
+    ...limiterOptions,
+    windowMs: 1000 * 60 * 15,
+    limit: 6,
+  });
+  const adminMutationLimiter = rateLimit({
+    ...limiterOptions,
+    windowMs: 1000 * 60 * 15,
+    limit: 30,
+  });
+  const loginLimiter = rateLimit({
+    ...limiterOptions,
+    windowMs: 1000 * 60 * 15,
+    limit: 10,
+    skipSuccessfulRequests: true,
+  });
 
   app.disable("x-powered-by");
   app.use(express.json({ limit: "1mb" }));
@@ -267,7 +299,7 @@ function createApp() {
   app.use("/media", express.static(UPLOADS_DIR));
   app.use(express.static(PUBLIC_DIR));
 
-  app.get("/admin", (_, res) => {
+  app.get("/admin", adminPageLimiter, (_, res) => {
     res.sendFile(path.join(PUBLIC_DIR, "admin.html"));
   });
 
@@ -275,7 +307,7 @@ function createApp() {
     res.json(sortByNewest(readJson(GALLERY_FILE, defaultGallery)));
   });
 
-  app.post("/api/bookings", (req, res) => {
+  app.post("/api/bookings", bookingLimiter, (req, res) => {
     const booking = {
       id: crypto.randomUUID(),
       name: sanitizeText(req.body.name, 80),
@@ -324,7 +356,7 @@ function createApp() {
     });
   });
 
-  app.post("/api/admin/setup", (req, res) => {
+  app.post("/api/admin/setup", adminMutationLimiter, (req, res) => {
     const adminSettings = readJson(ADMIN_FILE, {});
 
     if (adminSettings.configured) {
@@ -346,7 +378,7 @@ function createApp() {
     return res.status(201).json({ message: "Admin-Zugang erfolgreich eingerichtet." });
   });
 
-  app.post("/api/admin/login", (req, res) => {
+  app.post("/api/admin/login", loginLimiter, (req, res) => {
     const adminSettings = readJson(ADMIN_FILE, {});
 
     if (!adminSettings.configured) {
@@ -425,6 +457,7 @@ function createApp() {
   app.post(
     "/api/admin/gallery",
     requireAdmin,
+    adminMutationLimiter,
     upload.single("image"),
     (req, res) => {
       if (!req.file) {
@@ -452,7 +485,11 @@ function createApp() {
     }
   );
 
-  app.delete("/api/admin/gallery/:entryId", requireAdmin, (req, res) => {
+  app.delete(
+    "/api/admin/gallery/:entryId",
+    requireAdmin,
+    adminMutationLimiter,
+    (req, res) => {
     const galleryEntries = readJson(GALLERY_FILE, defaultGallery);
     const entry = galleryEntries.find((item) => item.id === req.params.entryId);
 
@@ -473,8 +510,9 @@ function createApp() {
       }
     }
 
-    return res.json({ message: "Galeriebild gelöscht." });
-  });
+      return res.json({ message: "Galeriebild gelöscht." });
+    }
+  );
 
   app.use((error, _, res, next) => {
     if (res.headersSent) {
