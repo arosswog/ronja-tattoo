@@ -12,11 +12,30 @@ const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 // On platforms with a read-only filesystem (e.g. Vercel serverless functions)
 // only the system temp directory is writable, so allow the writable locations
 // to be overridden. Locally the data/ and storage/ folders are used as before.
-const WRITABLE_BASE_DIR = process.env.RONJA_DATA_DIR
+const TMP_BASE_DIR = path.join(os.tmpdir(), "ronja-tattoo");
+
+function isWritableLocation(directoryPath) {
+  try {
+    fs.mkdirSync(directoryPath, { recursive: true });
+    fs.accessSync(directoryPath, fs.constants.W_OK);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+// Prefer an explicit override, then the temp dir on Vercel, then the repo
+// folder when running locally. If the preferred location is not writable
+// (e.g. the read-only serverless bundle when system env vars are not exposed),
+// fall back to the system temp directory so the function never crashes on boot.
+const PREFERRED_BASE_DIR = process.env.RONJA_DATA_DIR
   ? path.resolve(process.env.RONJA_DATA_DIR)
   : process.env.VERCEL
-  ? path.join(os.tmpdir(), "ronja-tattoo")
+  ? TMP_BASE_DIR
   : ROOT_DIR;
+const WRITABLE_BASE_DIR = isWritableLocation(PREFERRED_BASE_DIR)
+  ? PREFERRED_BASE_DIR
+  : TMP_BASE_DIR;
 const DATA_DIR = path.join(WRITABLE_BASE_DIR, "data");
 const STORAGE_DIR = path.join(WRITABLE_BASE_DIR, "storage");
 const UPLOADS_DIR = path.join(STORAGE_DIR, "uploads");
@@ -257,6 +276,10 @@ function createApp() {
   initializeStorage();
 
   const app = express();
+  // Vercel (and most hosting proxies) terminate TLS and forward the real
+  // client IP via X-Forwarded-For. Trust a single proxy hop so req.ip is
+  // accurate and express-rate-limit does not reject the forwarded header.
+  app.set("trust proxy", 1);
   const upload = createUploadMiddleware();
   const limiterOptions = {
     standardHeaders: "draft-8",
