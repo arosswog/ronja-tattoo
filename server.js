@@ -573,8 +573,25 @@ function createApp() {
   return app;
 }
 
+// The default export must be the Express app itself (a request handler
+// function). Vercel's Node runtime treats the file referenced by package.json
+// "main" as a serverless entrypoint and rejects it unless the default export is
+// a function or server ("Invalid export found in module ... The default export
+// must be a function or server."). Returning the app keeps that contract while
+// still exposing the helpers used by the tests and the api/ entrypoint as
+// properties on the exported function.
+const app = createApp();
+
+app.ADMIN_FILE = ADMIN_FILE;
+app.BOOKINGS_FILE = BOOKINGS_FILE;
+app.GALLERY_FILE = GALLERY_FILE;
+app.UPLOADS_DIR = UPLOADS_DIR;
+app.createApp = createApp;
+app.defaultGallery = defaultGallery;
+app.initializeStorage = initializeStorage;
+app.writeJson = writeJson;
+
 if (require.main === module) {
-  const app = createApp();
   const port = Number(process.env.PORT || 3000);
 
   app.listen(port, () => {
@@ -582,13 +599,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = {
-  ADMIN_FILE,
-  BOOKINGS_FILE,
-  GALLERY_FILE,
-  UPLOADS_DIR,
-  createApp,
-  defaultGallery,
-  initializeStorage,
-  writeJson,
-};
+module.exports = app;
