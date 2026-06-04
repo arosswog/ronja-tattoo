@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ronja Tattoo — Fine Line & Custom Tattoos</title>
+    <meta
+      name="description"
+      content="Mobile-first Website für Ronja Tattoo mit Galerie, Anfrageformular und Admin-Bereich."
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+
+    <header class="site-header">
+      <div class="brand">
+        <span class="brand-mark">✦</span>
+        <div>
+          <p class="eyebrow">Ronja Rosswog</p>
+          <h1>Ronja Tattoo</h1>
+        </div>
+      </div>
+      <nav class="header-links">
+        <a href="#gallery">Galerie</a>
+        <a href="#booking">Termin</a>
+        <a href="/admin">Admin</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero section">
+        <div class="hero-copy glass-card">
+          <p class="eyebrow">Custom • Fine Line • Ornamental</p>
+          <h2>Tattoos mit Charakter, feinster Linie und modernem Studio-Vibe.</h2>
+          <p class="lead">
+            Eine mobile-optimierte Landingpage für Ronja Tattoo mit Booking-Flow,
+            Galerie und Admin-Dashboard für Freigaben und Uploads.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#booking">Termin anfragen</a>
+            <a class="button secondary" href="#gallery">Arbeiten ansehen</a>
+          </div>
+          <div class="stats-grid">
+            <article>
+              <strong>Fine Line</strong>
+              <span>präzise, elegant, modern</span>
+            </article>
+            <article>
+              <strong>Custom Motifs</strong>
+              <span>floral, ornamental, lettering</span>
+            </article>
+            <article>
+              <strong>Booking Flow</strong>
+              <span>Anfragen & Freigaben digital</span>
+            </article>
+          </div>
+        </div>
+
+        <div class="hero-panel glass-card">
+          <div class="panel-badge">New Drop</div>
+          <div class="hero-preview">
+            <div class="preview-line"></div>
+            <div class="preview-line short"></div>
+            <div class="preview-grid">
+              <div class="preview-tile"></div>
+              <div class="preview-tile active"></div>
+              <div class="preview-tile"></div>
+              <div class="preview-tile"></div>
+            </div>
+          </div>
+          <div class="panel-copy">
+            <h3>Studio-Flow</h3>
+            <p>
+              Anfrage senden, Motiv besprechen, Wunschtermin abstimmen und
+              Freigabe bequem im Admin verwalten.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section content-grid">
+        <article class="glass-card">
+          <p class="eyebrow">Signature Styles</p>
+          <h3>Styles für individuelle Pieces</h3>
+          <ul class="feature-list">
+            <li>Fine-Line Tattoos mit leichter, präziser Ästhetik</li>
+            <li>Floral & ornamental Designs mit modernem Twist</li>
+            <li>Lettering, Sparkles und detailreiche Mini Motifs</li>
+          </ul>
+        </article>
+        <article class="glass-card">
+          <p class="eyebrow">So läuft’s ab</p>
+          <h3>Vom Konzept bis zum Termin</h3>
+          <ol class="process-list">
+            <li>Idee und Wunschdatum über das Formular senden</li>
+            <li>Ronja prüft die Anfrage im Admin-Dashboard</li>
+            <li>Freigabe und weitere Abstimmung direkt im Studio-Workflow</li>
+          </ol>
+        </article>
+      </section>
+
+      <section class="section" id="gallery">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Galerie</p>
+            <h3>Aktuelle Arbeiten & Mood</h3>
+          </div>
+          <p class="section-text">
+            Bestehende Beispielmotive sind bereits angelegt. Neue Bilder können
+            im Admin hochgeladen und sofort veröffentlicht werden.
+          </p>
+        </div>
+        <div class="gallery-grid" id="gallery-grid"></div>
+      </section>
+
+      <section class="section booking-section" id="booking">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Booking</p>
+            <h3>Termin anfragen</h3>
+          </div>
+          <p class="section-text">
+            Beschreibe deine Idee möglichst konkret. Die Anfrage landet direkt im
+            Admin-Bereich und kann dort freigegeben werden.
+          </p>
+        </div>
+
+        <form class="glass-card booking-form" id="booking-form">
+          <div class="form-grid">
+            <label>
+              <span>Name</span>
+              <input name="name" type="text" required minlength="2" maxlength="80" />
+            </label>
+            <label>
+              <span>E-Mail</span>
+              <input name="email" type="email" required maxlength="120" />
+            </label>
+            <label>
+              <span>Telefon / IG</span>
+              <input name="phone" type="text" maxlength="40" />
+            </label>
+            <label>
+              <span>Wunschtermin</span>
+              <input name="preferredDate" type="date" required />
+            </label>
+            <label>
+              <span>Körperstelle</span>
+              <input name="placement" type="text" maxlength="80" />
+            </label>
+            <label>
+              <span>Größe</span>
+              <input name="size" type="text" maxlength="80" />
+            </label>
+          </div>
+
+          <label>
+            <span>Deine Idee</span>
+            <textarea
+              name="designIdea"
+              rows="6"
+              minlength="20"
+              maxlength="1500"
+              required
+              placeholder="Beschreibe Stil, Motiv, Stimmung und eventuelle Referenzen."
+            ></textarea>
+          </label>
+
+          <div class="form-actions">
+            <button class="button primary" type="submit">Anfrage absenden</button>
+            <p class="form-hint">
+              Nach dem Absenden bleibt die Anfrage zunächst im Status „pending“,
+              bis sie von Ronja freigegeben wird.
+            </p>
+          </div>
+
+          <p class="status-message" id="booking-message" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Ronja Tattoo — mobile-first Portfolio, Galerie und Booking-Workflow.</p>
+      <a href="/admin">Zum Admin-Bereich</a>
+    </footer>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>
