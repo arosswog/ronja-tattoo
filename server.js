@@ -273,7 +273,15 @@ function sortByNewest(items, fieldName = "createdAt") {
 }
 
 function createApp() {
-  initializeStorage();
+  // Never let a storage failure (e.g. an unexpectedly read-only filesystem on
+  // a serverless platform) crash app creation. Read endpoints fall back to
+  // sensible defaults and write endpoints surface a handled error response, so
+  // a degraded-but-running app is preferable to a crashed function.
+  try {
+    initializeStorage();
+  } catch (error) {
+    console.error("Ronja Tattoo storage initialization failed:", error);
+  }
 
   const app = express();
   // Vercel (and most hosting proxies) terminate TLS and forward the real
