@@ -4,9 +4,9 @@ const bookingMessage = document.querySelector("#booking-message");
 const slotSelect = document.querySelector("#slot-select");
 const noSlotsNotice = document.querySelector("#no-slots-notice");
 
-// Slots are whole days, not time ranges — date only, no time-of-day.
-const dateFormatter = new Intl.DateTimeFormat("de-DE", {
+const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
   dateStyle: "full",
+  timeStyle: "short",
   timeZone: "Europe/Berlin",
 });
 
@@ -98,8 +98,8 @@ async function loadSlots() {
       .map(
         (slot) =>
           `<option value="${escapeHtml(slot.id)}">${escapeHtml(
-            dateFormatter.format(new Date(slot.startsAt))
-          )}${slot.label ? ` — ${escapeHtml(slot.label)}` : ""}</option>`
+            dateTimeFormatter.format(new Date(slot.startsAt))
+          )} Uhr${slot.label ? ` — ${escapeHtml(slot.label)}` : ""}</option>`
       )
       .join("");
 

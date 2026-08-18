@@ -112,23 +112,23 @@
             <div class="section-heading compact">
               <div>
                 <p class="eyebrow">Termine</p>
-                <h2>Neuen Slot anlegen</h2>
+                <h2>Termin-Paket veröffentlichen</h2>
               </div>
             </div>
+            <p class="section-text">
+              Jeder Tag im Paket kann seine eigene Uhrzeit haben. Beim
+              Absenden werden alle Zeilen als eigene Slots veröffentlicht.
+            </p>
             <form id="slot-form" class="stack-form">
+              <div id="slot-batch-rows"></div>
+              <button class="button ghost" id="add-slot-row" type="button">
+                + Weiteren Tag hinzufügen
+              </button>
               <label>
-                <span>Tag</span>
-                <input name="date" type="date" required />
-              </label>
-              <label>
-                <span>Bezeichnung (optional)</span>
-                <input name="label" type="text" maxlength="120" placeholder="z. B. Fine-Line Session" />
-              </label>
-              <label>
-                <span>Anzahlung in Euro</span>
+                <span>Anzahlung in Euro (gilt für alle Termine in diesem Paket)</span>
                 <input name="depositAmount" type="number" min="0" step="0.01" required />
               </label>
-              <button class="button primary" type="submit">Slot veröffentlichen</button>
+              <button class="button primary" type="submit">Paket veröffentlichen</button>
             </form>
           </article>
 

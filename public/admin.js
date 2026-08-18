@@ -40,9 +40,9 @@ async function getJson(url, options) {
   return data;
 }
 
-// Bookings are tied to whole-day slots, not specific times.
 const bookingDateFormatter = new Intl.DateTimeFormat("de-DE", {
   dateStyle: "full",
+  timeStyle: "short",
   timeZone: "Europe/Berlin",
 });
 

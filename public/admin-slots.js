@@ -4,11 +4,13 @@
 // of this file's event handlers run.
 
 const slotForm = document.querySelector("#slot-form");
+const slotBatchRows = document.querySelector("#slot-batch-rows");
+const addSlotRowButton = document.querySelector("#add-slot-row");
 const slotList = document.querySelector("#slot-list");
 
-// Slots are whole days, not time ranges — date only, no time-of-day.
-const dateFormatter = new Intl.DateTimeFormat("de-DE", {
+const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
   dateStyle: "full",
+  timeStyle: "short",
   timeZone: "Europe/Berlin",
 });
 
@@ -49,7 +51,11 @@ function renderSlots(slots) {
         <article class="booking-card">
           <div class="booking-card-header">
             <div>
-              <h3>${escapeHtml(dateFormatter.format(new Date(slot.startsAt)))}</h3>
+              <h3>${escapeHtml(dateTimeFormatter.format(new Date(slot.startsAt)))} – ${escapeHtml(
+                new Intl.DateTimeFormat("de-DE", { timeStyle: "short", timeZone: "Europe/Berlin" }).format(
+                  new Date(slot.endsAt)
+                )
+              )} Uhr</h3>
               <p class="booking-meta">${escapeHtml(slot.label || "ohne Bezeichnung")} · Anzahlung ${escapeHtml(
                 formatEuros(slot.depositAmountCents)
               )}</p>
@@ -68,41 +74,126 @@ async function loadSlots() {
   renderSlots(slots);
 }
 
-// A "day" input gives "YYYY-MM-DD"; interpreted with an explicit local
-// midnight so the browser resolves it in Ronja's own timezone rather than
-// UTC, then spans to the following midnight for the day's full duration.
-function dayToRange(dateValue) {
-  const startsAt = new Date(`${dateValue}T00:00:00`);
-  const endsAt = new Date(startsAt);
-  endsAt.setDate(endsAt.getDate() + 1);
-  return { startsAt, endsAt };
+function createSlotRow() {
+  const row = document.createElement("div");
+  row.className = "slot-batch-row";
+  row.innerHTML = `
+    <label>
+      <span>Tag</span>
+      <input type="date" data-field="date" required />
+    </label>
+    <label>
+      <span>Bezeichnung (optional)</span>
+      <input type="text" data-field="label" maxlength="120" placeholder="z. B. Fine-Line Session" />
+    </label>
+    <label>
+      <span>Von</span>
+      <input type="time" data-field="startTime" required />
+    </label>
+    <label>
+      <span>Bis</span>
+      <input type="time" data-field="endTime" required />
+    </label>
+    <button class="button ghost remove-row" type="button" data-remove-row>Diesen Tag entfernen</button>
+  `;
+  return row;
 }
+
+function addSlotRow() {
+  slotBatchRows?.appendChild(createSlotRow());
+}
+
+function resetBatchForm() {
+  if (slotBatchRows) {
+    slotBatchRows.innerHTML = "";
+    addSlotRow();
+  }
+  slotForm?.reset();
+}
+
+// A native <input type="date"> gives "YYYY-MM-DD", <input type="time">
+// gives "HH:MM". Combined and parsed without a timezone suffix, the
+// browser resolves the result in Ronja's own local time (Europe/Berlin),
+// exactly matching how the customer-facing display renders it back.
+function dateTimeToIso(dateValue, timeValue) {
+  return new Date(`${dateValue}T${timeValue}:00`).toISOString();
+}
+
+addSlotRowButton?.addEventListener("click", () => addSlotRow());
 
 slotForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const formData = new FormData(slotForm);
-  const { startsAt, endsAt } = dayToRange(String(formData.get("date")));
 
-  try {
-    await getJson("/api/admin/slots", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        startsAt: startsAt.toISOString(),
-        endsAt: endsAt.toISOString(),
-        label: formData.get("label"),
-        depositAmount: formData.get("depositAmount"),
-      }),
-    });
-    setMessage("Slot veröffentlicht.", "status-success");
-    slotForm.reset();
-    await loadSlots();
-  } catch (error) {
-    setMessage(error.message, "status-error");
+  const depositAmount = new FormData(slotForm).get("depositAmount");
+  const rows = [...(slotBatchRows?.querySelectorAll(".slot-batch-row") || [])];
+
+  if (!rows.length) {
+    setMessage("Bitte mindestens einen Tag hinzufügen.", "status-error");
+    return;
   }
+
+  const entries = rows.map((row) => ({
+    date: row.querySelector('[data-field="date"]').value,
+    label: row.querySelector('[data-field="label"]').value,
+    startTime: row.querySelector('[data-field="startTime"]').value,
+    endTime: row.querySelector('[data-field="endTime"]').value,
+  }));
+
+  if (entries.some((entry) => !entry.date || !entry.startTime || !entry.endTime)) {
+    setMessage(
+      "Bitte bei jedem Tag Datum, Start- und Endzeit angeben.",
+      "status-error"
+    );
+    return;
+  }
+
+  let succeeded = 0;
+  const errors = [];
+
+  // Sequential, not parallel: each POST hits the same rate limiter and
+  // gives a clear per-day error if one date in the package conflicts —
+  // the rest of the package still goes through.
+  for (const entry of entries) {
+    try {
+      await getJson("/api/admin/slots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startsAt: dateTimeToIso(entry.date, entry.startTime),
+          endsAt: dateTimeToIso(entry.date, entry.endTime),
+          label: entry.label,
+          depositAmount,
+        }),
+      });
+      succeeded += 1;
+    } catch (error) {
+      errors.push(`${entry.date}: ${error.message}`);
+    }
+  }
+
+  if (errors.length) {
+    setMessage(
+      `${succeeded} von ${entries.length} Terminen veröffentlicht. Nicht geklappt hat: ${errors.join(" · ")}`,
+      succeeded > 0 ? "status-success" : "status-error"
+    );
+  } else {
+    setMessage(
+      succeeded === 1 ? "1 Termin veröffentlicht." : `${succeeded} Termine veröffentlicht.`,
+      "status-success"
+    );
+  }
+
+  resetBatchForm();
+  await loadSlots();
 });
 
 document.addEventListener("click", async (event) => {
+  const removeButton = event.target.closest("[data-remove-row]");
+  if (removeButton) {
+    removeButton.closest(".slot-batch-row")?.remove();
+    return;
+  }
+
   const slotButton = event.target.closest("[data-slot-id]");
   if (!slotButton) {
     return;
@@ -120,3 +211,5 @@ document.addEventListener("click", async (event) => {
     setMessage(error.message, "status-error");
   }
 });
+
+addSlotRow();
