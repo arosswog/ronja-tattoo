@@ -1,6 +1,14 @@
 const galleryGrid = document.querySelector("#gallery-grid");
 const bookingForm = document.querySelector("#booking-form");
 const bookingMessage = document.querySelector("#booking-message");
+const slotSelect = document.querySelector("#slot-select");
+const noSlotsNotice = document.querySelector("#no-slots-notice");
+
+const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
+  dateStyle: "full",
+  timeStyle: "short",
+  timeZone: "Europe/Berlin",
+});
 
 function setMessage(element, message, type = "") {
   if (!element) {
@@ -66,6 +74,39 @@ async function loadGallery() {
   renderGallery(items);
 }
 
+async function loadSlots() {
+  if (!slotSelect || !bookingForm || !noSlotsNotice) {
+    return;
+  }
+
+  const response = await fetch("/api/slots");
+  if (!response.ok) {
+    throw new Error("Termine konnten nicht geladen werden.");
+  }
+
+  const slots = await response.json();
+
+  if (!slots.length) {
+    bookingForm.hidden = true;
+    noSlotsNotice.hidden = false;
+    return;
+  }
+
+  slotSelect.innerHTML =
+    '<option value="" disabled selected>Termin wählen …</option>' +
+    slots
+      .map(
+        (slot) =>
+          `<option value="${escapeHtml(slot.id)}">${escapeHtml(
+            dateTimeFormatter.format(new Date(slot.startsAt))
+          )}${slot.label ? ` — ${escapeHtml(slot.label)}` : ""}</option>`
+      )
+      .join("");
+
+  bookingForm.hidden = false;
+  noSlotsNotice.hidden = true;
+}
+
 async function submitBooking(event) {
   event.preventDefault();
   const formData = new FormData(bookingForm);
@@ -88,11 +129,18 @@ async function submitBooking(event) {
 
   bookingForm.reset();
   setMessage(bookingMessage, data.message, "status-success");
+  await loadSlots();
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     await loadGallery();
+  } catch (error) {
+    setMessage(bookingMessage, error.message, "status-error");
+  }
+
+  try {
+    await loadSlots();
   } catch (error) {
     setMessage(bookingMessage, error.message, "status-error");
   }

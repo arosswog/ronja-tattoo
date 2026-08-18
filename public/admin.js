@@ -40,11 +40,23 @@ async function getJson(url, options) {
   return data;
 }
 
+const bookingDateFormatter = new Intl.DateTimeFormat("de-DE", {
+  dateStyle: "full",
+  timeStyle: "short",
+  timeZone: "Europe/Berlin",
+});
+
+function formatPreferredDate(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : bookingDateFormatter.format(parsed);
+}
+
 function bookingStatusBadge(status) {
   const labelMap = {
     pending: "Pending",
     approved: "Freigegeben",
     rejected: "Abgelehnt",
+    cancelled: "Storniert",
   };
 
   return `<span class="status-pill ${status}">${labelMap[status] || status}</span>`;
@@ -70,14 +82,20 @@ function renderBookings(bookings) {
             </div>
             ${bookingStatusBadge(booking.status)}
           </div>
-          <p><strong>Wunschtermin:</strong> ${escapeHtml(booking.preferredDate)}</p>
+          <p><strong>Termin:</strong> ${escapeHtml(formatPreferredDate(booking.preferredDate))}</p>
           <p><strong>Körperstelle:</strong> ${escapeHtml(booking.placement || "offen")}</p>
           <p><strong>Größe:</strong> ${escapeHtml(booking.size || "offen")}</p>
           <p>${escapeHtml(booking.designIdea)}</p>
           <div class="booking-actions">
+            ${
+              booking.status === "approved"
+                ? `<button class="button status" data-status="cancelled" data-booking-id="${booking.id}" type="button">Stornieren</button>`
+                : `
             <button class="button status" data-status="approved" data-booking-id="${booking.id}" type="button">Freigeben</button>
             <button class="button status" data-status="pending" data-booking-id="${booking.id}" type="button">Auf pending</button>
             <button class="button status" data-status="rejected" data-booking-id="${booking.id}" type="button">Ablehnen</button>
+            `
+            }
           </div>
         </article>
       `

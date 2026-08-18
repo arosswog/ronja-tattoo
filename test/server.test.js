@@ -50,6 +50,55 @@ async function withServer(run) {
   }
 }
 
+async function setupAndLogin(baseUrl) {
+  await fetch(`${baseUrl}/api/admin/setup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "RonjaSecure123" }),
+  });
+  const loginResponse = await fetch(`${baseUrl}/api/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "RonjaSecure123" }),
+  });
+  return loginResponse.headers.get("set-cookie");
+}
+
+let slotCounter = 0;
+
+// Every call gets a distinct start time (slotCounter) so tests that create
+// multiple slots never collide with the active-start-time unique index.
+async function createOpenSlot(baseUrl, cookie, overrides = {}) {
+  slotCounter += 1;
+  const day = String(10 + slotCounter).padStart(2, "0");
+  const response = await fetch(`${baseUrl}/api/admin/slots`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({
+      startsAt: `2026-12-${day}T10:00:00.000Z`,
+      endsAt: `2026-12-${day}T13:00:00.000Z`,
+      label: "Test Slot",
+      depositAmount: "20",
+      ...overrides,
+    }),
+  });
+  return response.json();
+}
+
+function bookingPayload(slotId, overrides = {}) {
+  return {
+    slotId,
+    name: "Test User",
+    email: "test@example.com",
+    phone: "@test",
+    placement: "Unterarm",
+    size: "10 cm",
+    designIdea:
+      "Fine-line floral concept with ornamental details for endpoint verification.",
+    ...overrides,
+  };
+}
+
 test("gallery endpoint returns seeded tattoo artworks", async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/gallery`);
@@ -61,23 +110,15 @@ test("gallery endpoint returns seeded tattoo artworks", async () => {
   });
 });
 
-test("booking requests are accepted and stored as pending", async () => {
+test("booking requests against an open slot are accepted and stored as pending", async () => {
   await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
     const response = await fetch(`${baseUrl}/api/bookings`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: "Test User",
-        email: "test@example.com",
-        phone: "@test",
-        preferredDate: "2026-08-10",
-        placement: "Unterarm",
-        size: "10 cm",
-        designIdea:
-          "Fine-line floral concept with ornamental details for endpoint verification.",
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id)),
     });
 
     assert.equal(response.status, 201);
@@ -85,54 +126,75 @@ test("booking requests are accepted and stored as pending", async () => {
     const savedBookings = await bookingStore.listBookings();
     assert.equal(savedBookings.length, 1);
     assert.equal(savedBookings[0].status, "pending");
+    assert.equal(savedBookings[0].slotId, slot.id);
+
+    // Booking a slot takes it off the public list immediately.
+    const publicSlots = await (await fetch(`${baseUrl}/api/slots`)).json();
+    assert.equal(publicSlots.length, 0);
+  });
+});
+
+test("booking a slot that is not open is rejected", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
+    const first = await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id)),
+    });
+    assert.equal(first.status, 201);
+
+    const second = await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "second@example.com" })),
+    });
+    assert.equal(second.status, 409);
+  });
+});
+
+test("two concurrent booking requests for the same slot: exactly one succeeds", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
+    const [first, second] = await Promise.all([
+      fetch(`${baseUrl}/api/bookings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bookingPayload(slot.id, { email: "racer-a@example.com" })),
+      }),
+      fetch(`${baseUrl}/api/bookings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bookingPayload(slot.id, { email: "racer-b@example.com" })),
+      }),
+    ]);
+
+    const statuses = [first.status, second.status].sort();
+    assert.deepEqual(statuses, [201, 409]);
+
+    const bookings = await bookingStore.listBookings();
+    assert.equal(bookings.length, 1);
   });
 });
 
 test("admin can be configured, logged in, and read bookings", async () => {
   await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
     const bookingResponse = await fetch(`${baseUrl}/api/bookings`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name: "Booking Person",
-        email: "booking@example.com",
-        phone: "0123",
-        preferredDate: "2026-09-10",
-        placement: "Schulter",
-        size: "15 cm",
-        designIdea:
-          "Botanical shoulder piece with fine lines and soft ornamental details for testing.",
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "booking@example.com" })),
     });
     assert.equal(bookingResponse.status, 201);
 
-    const setupResponse = await fetch(`${baseUrl}/api/admin/setup`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ password: "RonjaSecure123" }),
-    });
-    assert.equal(setupResponse.status, 201);
-
-    const loginResponse = await fetch(`${baseUrl}/api/admin/login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ password: "RonjaSecure123" }),
-    });
-    assert.equal(loginResponse.status, 200);
-
-    const cookie = loginResponse.headers.get("set-cookie");
-    assert.ok(cookie);
-
     const bookingsResponse = await fetch(`${baseUrl}/api/admin/bookings`, {
-      headers: {
-        Cookie: cookie,
-      },
+      headers: { Cookie: cookie },
     });
     assert.equal(bookingsResponse.status, 200);
 
@@ -144,31 +206,14 @@ test("admin can be configured, logged in, and read bookings", async () => {
 
 test("admin can approve a pending booking", async () => {
   await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
     await fetch(`${baseUrl}/api/bookings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: "Approve Person",
-        email: "approve@example.com",
-        phone: "0123",
-        preferredDate: "2026-09-11",
-        placement: "Arm",
-        size: "8 cm",
-        designIdea: "Small fine-line piece for approval-flow testing purposes.",
-      }),
+      body: JSON.stringify(bookingPayload(slot.id, { email: "approve@example.com" })),
     });
-
-    await fetch(`${baseUrl}/api/admin/setup`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: "RonjaSecure123" }),
-    });
-    const loginResponse = await fetch(`${baseUrl}/api/admin/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: "RonjaSecure123" }),
-    });
-    const cookie = loginResponse.headers.get("set-cookie");
 
     const [{ id }] = await bookingStore.listBookings();
 
@@ -185,19 +230,58 @@ test("admin can approve a pending booking", async () => {
   });
 });
 
-async function setupAndLogin(baseUrl) {
-  await fetch(`${baseUrl}/api/admin/setup`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: "RonjaSecure123" }),
+test("rejecting a booking releases its slot back to the public list", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "reject@example.com" })),
+    });
+    const [{ id }] = await bookingStore.listBookings();
+
+    await fetch(`${baseUrl}/api/admin/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "rejected" }),
+    });
+
+    const publicSlots = await (await fetch(`${baseUrl}/api/slots`)).json();
+    assert.equal(publicSlots.length, 1);
+    assert.equal(publicSlots[0].id, slot.id);
   });
-  const loginResponse = await fetch(`${baseUrl}/api/admin/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password: "RonjaSecure123" }),
+});
+
+test("cancelling an approved booking releases its slot", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "cancel@example.com" })),
+    });
+    const [{ id }] = await bookingStore.listBookings();
+
+    await fetch(`${baseUrl}/api/admin/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "approved" }),
+    });
+    const cancelResponse = await fetch(`${baseUrl}/api/admin/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "cancelled" }),
+    });
+    assert.equal(cancelResponse.status, 200);
+
+    const publicSlots = await (await fetch(`${baseUrl}/api/slots`)).json();
+    assert.equal(publicSlots.length, 1);
   });
-  return loginResponse.headers.get("set-cookie");
-}
+});
 
 test("admin can create a slot and it appears on the public slots endpoint", async () => {
   await withServer(async (baseUrl) => {

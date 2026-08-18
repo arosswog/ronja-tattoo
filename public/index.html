@@ -127,7 +127,12 @@
           </p>
         </div>
 
-        <form class="glass-card booking-form" id="booking-form">
+        <p class="glass-card status-message" id="no-slots-notice" hidden>
+          Aktuell sind alle Termine vergeben. Schau bald wieder vorbei — neue
+          Termine werden hier veröffentlicht, sobald sie frei sind.
+        </p>
+
+        <form class="glass-card booking-form" id="booking-form" hidden>
           <div class="form-grid">
             <label>
               <span>Name</span>
@@ -142,8 +147,10 @@
               <input name="phone" type="text" maxlength="40" />
             </label>
             <label>
-              <span>Wunschtermin</span>
-              <input name="preferredDate" type="date" required />
+              <span>Termin</span>
+              <select name="slotId" id="slot-select" required>
+                <option value="" disabled selected>Termine werden geladen …</option>
+              </select>
             </label>
             <label>
               <span>Körperstelle</span>

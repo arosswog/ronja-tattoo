@@ -231,7 +231,7 @@ function createApp() {
     const name = sanitizeText(req.body.name, 80);
     const email = sanitizeText(req.body.email, 120).toLowerCase();
     const phone = sanitizeText(req.body.phone, 40);
-    const preferredDate = sanitizeText(req.body.preferredDate, 40);
+    const slotId = sanitizeText(req.body.slotId, 60);
     const placement = sanitizeText(req.body.placement, 80);
     const size = sanitizeText(req.body.size, 80);
     const designIdea = sanitizeText(req.body.designIdea, 1500);
@@ -243,8 +243,8 @@ function createApp() {
     if (!emailPattern.test(email)) {
       return jsonError(res, 400, "Bitte eine gültige E-Mail-Adresse angeben.");
     }
-    if (!preferredDate) {
-      return jsonError(res, 400, "Bitte einen Wunschtermin angeben.");
+    if (!slotId) {
+      return jsonError(res, 400, "Bitte einen Termin auswählen.");
     }
     if (designIdea.length < 20) {
       return jsonError(
@@ -254,15 +254,22 @@ function createApp() {
       );
     }
 
-    await bookingStore.createBooking({
-      name,
-      email,
-      phone,
-      preferredDate,
-      placement,
-      size,
-      designIdea,
-    });
+    try {
+      await bookingStore.createBookingForSlot({
+        slotId,
+        name,
+        email,
+        phone,
+        placement,
+        size,
+        designIdea,
+      });
+    } catch (error) {
+      if (error.status === 404 || error.status === 409) {
+        return jsonError(res, error.status, error.message);
+      }
+      throw error;
+    }
 
     return res.status(201).json({
       message: "Danke! Deine Anfrage ist eingegangen und wartet jetzt auf Freigabe.",
@@ -344,7 +351,7 @@ function createApp() {
 
   app.patch("/api/admin/bookings/:bookingId", requireAdmin, async (req, res) => {
     const nextStatus = sanitizeText(req.body.status, 20).toLowerCase();
-    if (!["pending", "approved", "rejected"].includes(nextStatus)) {
+    if (!["pending", "approved", "rejected", "cancelled"].includes(nextStatus)) {
       return jsonError(res, 400, "Ungültiger Status.");
     }
 
