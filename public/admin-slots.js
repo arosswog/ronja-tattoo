@@ -6,9 +6,9 @@
 const slotForm = document.querySelector("#slot-form");
 const slotList = document.querySelector("#slot-list");
 
-const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
+// Slots are whole days, not time ranges — date only, no time-of-day.
+const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   dateStyle: "full",
-  timeStyle: "short",
   timeZone: "Europe/Berlin",
 });
 
@@ -49,7 +49,7 @@ function renderSlots(slots) {
         <article class="booking-card">
           <div class="booking-card-header">
             <div>
-              <h3>${escapeHtml(dateTimeFormatter.format(new Date(slot.startsAt)))}</h3>
+              <h3>${escapeHtml(dateFormatter.format(new Date(slot.startsAt)))}</h3>
               <p class="booking-meta">${escapeHtml(slot.label || "ohne Bezeichnung")} · Anzahlung ${escapeHtml(
                 formatEuros(slot.depositAmountCents)
               )}</p>
@@ -68,17 +68,28 @@ async function loadSlots() {
   renderSlots(slots);
 }
 
+// A "day" input gives "YYYY-MM-DD"; interpreted with an explicit local
+// midnight so the browser resolves it in Ronja's own timezone rather than
+// UTC, then spans to the following midnight for the day's full duration.
+function dayToRange(dateValue) {
+  const startsAt = new Date(`${dateValue}T00:00:00`);
+  const endsAt = new Date(startsAt);
+  endsAt.setDate(endsAt.getDate() + 1);
+  return { startsAt, endsAt };
+}
+
 slotForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(slotForm);
+  const { startsAt, endsAt } = dayToRange(String(formData.get("date")));
 
   try {
     await getJson("/api/admin/slots", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        startsAt: new Date(String(formData.get("startsAt"))).toISOString(),
-        endsAt: new Date(String(formData.get("endsAt"))).toISOString(),
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
         label: formData.get("label"),
         depositAmount: formData.get("depositAmount"),
       }),
