@@ -118,9 +118,20 @@ img {
 
 .header-links {
   display: flex;
+  align-items: center;
   gap: 1rem;
   font-size: 0.95rem;
   color: var(--muted);
+}
+
+.social-link {
+  display: flex;
+  transition: color 0.15s ease;
+}
+
+.social-link:hover,
+.social-link:focus-visible {
+  color: var(--accent-strong);
 }
 
 .eyebrow {
