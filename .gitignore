@@ -1,3 +1,6 @@
 node_modules/
-storage/uploads/*
-!storage/uploads/.gitkeep
+.vercel
+.env*
+.agents/
+.claude/
+skills-lock.json

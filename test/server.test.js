@@ -1,36 +1,30 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
 const http = require("node:http");
 
-const {
-  ADMIN_FILE,
-  BOOKINGS_FILE,
-  GALLERY_FILE,
-  createApp,
-  defaultGallery,
-  initializeStorage,
-  writeJson,
-} = require("../server");
+const { createApp } = require("../server");
+const { query, closePool } = require("../lib/db");
+const { runMigrations } = require("../lib/migrate");
+const bookingStore = require("../lib/store/bookings");
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function resetData() {
-  initializeStorage();
-  writeJson(BOOKINGS_FILE, []);
-  writeJson(GALLERY_FILE, clone(defaultGallery));
-  writeJson(ADMIN_FILE, {
-    configured: false,
-    passwordHash: "",
-    salt: "",
-    createdAt: null,
-  });
+async function resetData() {
+  // TRUNCATE ... RESTART IDENTITY CASCADE is the Postgres equivalent of the
+  // old writeJson(file, []) reset — wipes every row and any dependent data,
+  // fresh for each test. gallery_entries is repopulated by re-running the
+  // (idempotent) seed migration's INSERT afterwards.
+  await query(
+    "TRUNCATE bookings, gallery_entries, sessions RESTART IDENTITY CASCADE"
+  );
+  await query(
+    `UPDATE admin_account
+     SET configured = false, password_hash = '', salt = '', created_at = NULL
+     WHERE id = 1`
+  );
+  await runMigrations(); // no-op for already-applied files, re-seeds gallery_entries
 }
 
 async function withServer(run) {
-  resetData();
+  await resetData();
   const app = createApp();
   const server = http.createServer(app);
 
@@ -52,7 +46,7 @@ async function withServer(run) {
         resolve();
       });
     });
-    resetData();
+    await resetData();
   }
 }
 
@@ -88,7 +82,7 @@ test("booking requests are accepted and stored as pending", async () => {
 
     assert.equal(response.status, 201);
 
-    const savedBookings = JSON.parse(fs.readFileSync(BOOKINGS_FILE, "utf8"));
+    const savedBookings = await bookingStore.listBookings();
     assert.equal(savedBookings.length, 1);
     assert.equal(savedBookings[0].status, "pending");
   });
@@ -146,4 +140,51 @@ test("admin can be configured, logged in, and read bookings", async () => {
     assert.equal(bookings.length, 1);
     assert.equal(bookings[0].email, "booking@example.com");
   });
+});
+
+test("admin can approve a pending booking", async () => {
+  await withServer(async (baseUrl) => {
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Approve Person",
+        email: "approve@example.com",
+        phone: "0123",
+        preferredDate: "2026-09-11",
+        placement: "Arm",
+        size: "8 cm",
+        designIdea: "Small fine-line piece for approval-flow testing purposes.",
+      }),
+    });
+
+    await fetch(`${baseUrl}/api/admin/setup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "RonjaSecure123" }),
+    });
+    const loginResponse = await fetch(`${baseUrl}/api/admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "RonjaSecure123" }),
+    });
+    const cookie = loginResponse.headers.get("set-cookie");
+
+    const [{ id }] = await bookingStore.listBookings();
+
+    const patchResponse = await fetch(`${baseUrl}/api/admin/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "approved" }),
+    });
+    assert.equal(patchResponse.status, 200);
+
+    const [updated] = await bookingStore.listBookings();
+    assert.equal(updated.status, "approved");
+    assert.ok(updated.reviewedAt);
+  });
+});
+
+test.after(async () => {
+  await closePool();
 });

@@ -1,132 +1,32 @@
 const crypto = require("crypto");
-const fs = require("fs");
-const os = require("os");
 const path = require("path");
 
 const express = require("express");
 const { rateLimit } = require("express-rate-limit");
 const multer = require("multer");
 
+const { sanitizeText } = require("./lib/sanitize");
+const { allowedUploadTypes, uploadGalleryImage, deleteGalleryImage } = require("./lib/blob");
+const adminStore = require("./lib/store/admin");
+const sessionStore = require("./lib/store/sessions");
+const galleryStore = require("./lib/store/gallery");
+const bookingStore = require("./lib/store/bookings");
+
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
-// On platforms with a read-only filesystem (e.g. Vercel serverless functions)
-// only the system temp directory is writable, so allow the writable locations
-// to be overridden. Locally the data/ and storage/ folders are used as before.
-const TMP_BASE_DIR = path.join(os.tmpdir(), "ronja-tattoo");
-
-function isWritableLocation(directoryPath) {
-  try {
-    fs.mkdirSync(directoryPath, { recursive: true });
-    fs.accessSync(directoryPath, fs.constants.W_OK);
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
-
-// Prefer an explicit override, then the temp dir on Vercel, then the repo
-// folder when running locally. If the preferred location is not writable
-// (e.g. the read-only serverless bundle when system env vars are not exposed),
-// fall back to the system temp directory so the function never crashes on boot.
-const PREFERRED_BASE_DIR = process.env.RONJA_DATA_DIR
-  ? path.resolve(process.env.RONJA_DATA_DIR)
-  : process.env.VERCEL
-  ? TMP_BASE_DIR
-  : ROOT_DIR;
-const WRITABLE_BASE_DIR = isWritableLocation(PREFERRED_BASE_DIR)
-  ? PREFERRED_BASE_DIR
-  : TMP_BASE_DIR;
-const DATA_DIR = path.join(WRITABLE_BASE_DIR, "data");
-const STORAGE_DIR = path.join(WRITABLE_BASE_DIR, "storage");
-const UPLOADS_DIR = path.join(STORAGE_DIR, "uploads");
-const BOOKINGS_FILE = path.join(DATA_DIR, "bookings.json");
-const GALLERY_FILE = path.join(DATA_DIR, "gallery.json");
-const ADMIN_FILE = path.join(DATA_DIR, "admin.json");
 const SESSION_COOKIE = "ronja_admin_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const LOGIN_WINDOW_MS = 1000 * 60 * 15;
 const MAX_LOGIN_ATTEMPTS = 5;
-const allowedUploadTypes = new Map([
-  ["image/jpeg", ".jpg"],
-  ["image/png", ".png"],
-  ["image/webp", ".webp"],
-]);
 
+// Per-IP login lockout stays in-memory (unlike sessions/bookings/gallery,
+// this is a soft rate-limit window, not data that must survive a cold
+// start — express-rate-limit's own MemoryStore has the identical
+// per-instance scoping and is the accepted pattern for this at this scale).
 const loginAttempts = new Map();
-const sessions = new Map();
-
-const defaultGallery = [
-  {
-    id: "sample-ornamental-flow",
-    title: "Ornamental Flow",
-    description: "Elegante Linien mit weicher Bewegung und ornamentalem Fokus.",
-    tags: ["ornamental", "fine line"],
-    image: "/assets/gallery/ornamental-flow.svg",
-    createdAt: "2026-01-12T10:00:00.000Z",
-  },
-  {
-    id: "sample-botanical-lines",
-    title: "Botanical Lines",
-    description: "Florale Fine-Line-Ästhetik mit leichter, moderner Komposition.",
-    tags: ["floral", "minimal"],
-    image: "/assets/gallery/botanical-lines.svg",
-    createdAt: "2026-02-20T14:30:00.000Z",
-  },
-  {
-    id: "sample-celestial-script",
-    title: "Celestial Script",
-    description: "Leichtes Lettering mit feinen Stern- und Sparkle-Details.",
-    tags: ["lettering", "celestial"],
-    image: "/assets/gallery/celestial-script.svg",
-    createdAt: "2026-03-18T16:45:00.000Z",
-  },
-];
-
-function ensureDir(directoryPath) {
-  fs.mkdirSync(directoryPath, { recursive: true });
-}
-
-function ensureJsonFile(filePath, fallbackValue) {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(fallbackValue, null, 2));
-  }
-}
-
-function readJson(filePath, fallbackValue) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch (error) {
-    return fallbackValue;
-  }
-}
-
-function writeJson(filePath, value) {
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
-}
-
-function initializeStorage() {
-  ensureDir(DATA_DIR);
-  ensureDir(STORAGE_DIR);
-  ensureDir(UPLOADS_DIR);
-  ensureJsonFile(BOOKINGS_FILE, []);
-  ensureJsonFile(GALLERY_FILE, defaultGallery);
-  ensureJsonFile(ADMIN_FILE, {
-    configured: false,
-    passwordHash: "",
-    salt: "",
-    createdAt: null,
-  });
-}
 
 function jsonError(res, status, message) {
   return res.status(status).json({ error: message });
-}
-
-function sanitizeText(value, maxLength) {
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .slice(0, maxLength);
 }
 
 function parseCookies(cookieHeader = "") {
@@ -165,26 +65,10 @@ function getClientKey(req) {
   return req.ip || "unknown";
 }
 
-function clearExpiredSessions() {
-  const now = Date.now();
-
-  for (const [token, session] of sessions.entries()) {
-    if (session.expiresAt <= now) {
-      sessions.delete(token);
-    }
-  }
-}
-
-function getSession(req) {
-  clearExpiredSessions();
+async function getSession(req) {
   const cookies = parseCookies(req.headers.cookie);
   const token = cookies[SESSION_COOKIE];
-
-  if (!token) {
-    return null;
-  }
-
-  return sessions.get(token) || null;
+  return sessionStore.getSession(token);
 }
 
 function setSessionCookie(res, token) {
@@ -203,8 +87,8 @@ function clearSessionCookie(res) {
   );
 }
 
-function requireAdmin(req, res, next) {
-  const session = getSession(req);
+async function requireAdmin(req, res, next) {
+  const session = await getSession(req);
 
   if (!session) {
     return jsonError(res, 401, "Bitte zuerst im Admin-Bereich anmelden.");
@@ -242,13 +126,7 @@ function isRateLimited(req) {
 
 function createUploadMiddleware() {
   return multer({
-    storage: multer.diskStorage({
-      destination: (_, __, callback) => callback(null, UPLOADS_DIR),
-      filename: (_, file, callback) => {
-        const extension = allowedUploadTypes.get(file.mimetype) || ".bin";
-        callback(null, `${crypto.randomUUID()}${extension}`);
-      },
-    }),
+    storage: multer.memoryStorage(),
     limits: {
       fileSize: 8 * 1024 * 1024,
       files: 1,
@@ -264,25 +142,7 @@ function createUploadMiddleware() {
   });
 }
 
-function sortByNewest(items, fieldName = "createdAt") {
-  return [...items].sort(
-    (left, right) =>
-      new Date(right[fieldName] || right.submittedAt || 0).getTime() -
-      new Date(left[fieldName] || left.submittedAt || 0).getTime()
-  );
-}
-
 function createApp() {
-  // Never let a storage failure (e.g. an unexpectedly read-only filesystem on
-  // a serverless platform) crash app creation. Read endpoints fall back to
-  // sensible defaults and write endpoints surface a handled error response, so
-  // a degraded-but-running app is preferable to a crashed function.
-  try {
-    initializeStorage();
-  } catch (error) {
-    console.error("Ronja Tattoo storage initialization failed:", error);
-  }
-
   const app = express();
   // Vercel (and most hosting proxies) terminate TLS and forward the real
   // client IP via X-Forwarded-For. Trust a single proxy hop so req.ip is
@@ -327,7 +187,7 @@ function createApp() {
   app.use((req, res, next) => {
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      "default-src 'self'; img-src 'self' data: https://*.public.blob.vercel-storage.com; style-src 'self'; script-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     );
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     res.setHeader("Referrer-Policy", "same-origin");
@@ -336,42 +196,36 @@ function createApp() {
     next();
   });
 
-  app.use("/media", express.static(UPLOADS_DIR));
   app.use(express.static(PUBLIC_DIR));
 
   app.get("/admin", adminPageLimiter, (_, res) => {
     res.sendFile(path.join(PUBLIC_DIR, "admin.html"));
   });
 
-  app.get("/api/gallery", (_, res) => {
-    res.json(sortByNewest(readJson(GALLERY_FILE, defaultGallery)));
+  app.get("/api/gallery", async (_, res) => {
+    res.json(await galleryStore.listGallery());
   });
 
-  app.post("/api/bookings", bookingLimiter, (req, res) => {
-    const booking = {
-      id: crypto.randomUUID(),
-      name: sanitizeText(req.body.name, 80),
-      email: sanitizeText(req.body.email, 120).toLowerCase(),
-      phone: sanitizeText(req.body.phone, 40),
-      preferredDate: sanitizeText(req.body.preferredDate, 40),
-      placement: sanitizeText(req.body.placement, 80),
-      size: sanitizeText(req.body.size, 80),
-      designIdea: sanitizeText(req.body.designIdea, 1500),
-      status: "pending",
-      submittedAt: new Date().toISOString(),
-    };
+  app.post("/api/bookings", bookingLimiter, async (req, res) => {
+    const name = sanitizeText(req.body.name, 80);
+    const email = sanitizeText(req.body.email, 120).toLowerCase();
+    const phone = sanitizeText(req.body.phone, 40);
+    const preferredDate = sanitizeText(req.body.preferredDate, 40);
+    const placement = sanitizeText(req.body.placement, 80);
+    const size = sanitizeText(req.body.size, 80);
+    const designIdea = sanitizeText(req.body.designIdea, 1500);
 
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (booking.name.length < 2) {
+    if (name.length < 2) {
       return jsonError(res, 400, "Bitte einen Namen mit mindestens zwei Zeichen angeben.");
     }
-    if (!emailPattern.test(booking.email)) {
+    if (!emailPattern.test(email)) {
       return jsonError(res, 400, "Bitte eine gültige E-Mail-Adresse angeben.");
     }
-    if (!booking.preferredDate) {
+    if (!preferredDate) {
       return jsonError(res, 400, "Bitte einen Wunschtermin angeben.");
     }
-    if (booking.designIdea.length < 20) {
+    if (designIdea.length < 20) {
       return jsonError(
         res,
         400,
@@ -379,25 +233,31 @@ function createApp() {
       );
     }
 
-    const bookings = readJson(BOOKINGS_FILE, []);
-    bookings.push(booking);
-    writeJson(BOOKINGS_FILE, bookings);
+    await bookingStore.createBooking({
+      name,
+      email,
+      phone,
+      preferredDate,
+      placement,
+      size,
+      designIdea,
+    });
 
     return res.status(201).json({
       message: "Danke! Deine Anfrage ist eingegangen und wartet jetzt auf Freigabe.",
     });
   });
 
-  app.get("/api/admin/status", (req, res) => {
-    const adminSettings = readJson(ADMIN_FILE, {});
+  app.get("/api/admin/status", async (req, res) => {
+    const adminSettings = await adminStore.getAdminSettings();
     res.json({
-      configured: Boolean(adminSettings.configured),
-      authenticated: Boolean(getSession(req)),
+      configured: adminSettings.configured,
+      authenticated: Boolean(await getSession(req)),
     });
   });
 
-  app.post("/api/admin/setup", adminMutationLimiter, (req, res) => {
-    const adminSettings = readJson(ADMIN_FILE, {});
+  app.post("/api/admin/setup", adminMutationLimiter, async (req, res) => {
+    const adminSettings = await adminStore.getAdminSettings();
 
     if (adminSettings.configured) {
       return jsonError(res, 409, "Der Admin-Zugang wurde bereits eingerichtet.");
@@ -409,17 +269,13 @@ function createApp() {
     }
 
     const credentials = hashPassword(password);
-    writeJson(ADMIN_FILE, {
-      configured: true,
-      ...credentials,
-      createdAt: new Date().toISOString(),
-    });
+    await adminStore.setAdminCredentials(credentials);
 
     return res.status(201).json({ message: "Admin-Zugang erfolgreich eingerichtet." });
   });
 
-  app.post("/api/admin/login", loginLimiter, (req, res) => {
-    const adminSettings = readJson(ADMIN_FILE, {});
+  app.post("/api/admin/login", loginLimiter, async (req, res) => {
+    const adminSettings = await adminStore.getAdminSettings();
 
     if (!adminSettings.configured) {
       return jsonError(res, 409, "Bitte richte zuerst den Admin-Zugang ein.");
@@ -445,51 +301,36 @@ function createApp() {
 
     clearLoginFailures(req);
 
-    const token = crypto.randomUUID();
-    sessions.set(token, {
-      createdAt: Date.now(),
-      expiresAt: Date.now() + SESSION_TTL_MS,
-    });
+    const token = await sessionStore.createSession(SESSION_TTL_MS);
     setSessionCookie(res, token);
 
     return res.json({ message: "Erfolgreich angemeldet." });
   });
 
-  app.post("/api/admin/logout", (req, res) => {
+  app.post("/api/admin/logout", async (req, res) => {
     const sessionToken = parseCookies(req.headers.cookie)[SESSION_COOKIE];
     if (sessionToken) {
-      sessions.delete(sessionToken);
+      await sessionStore.deleteSession(sessionToken);
     }
 
     clearSessionCookie(res);
     return res.json({ message: "Erfolgreich abgemeldet." });
   });
 
-  app.get("/api/admin/bookings", requireAdmin, (_, res) => {
-    res.json(sortByNewest(readJson(BOOKINGS_FILE, []), "submittedAt"));
+  app.get("/api/admin/bookings", requireAdmin, async (_, res) => {
+    res.json(await bookingStore.listBookings());
   });
 
-  app.patch("/api/admin/bookings/:bookingId", requireAdmin, (req, res) => {
+  app.patch("/api/admin/bookings/:bookingId", requireAdmin, async (req, res) => {
     const nextStatus = sanitizeText(req.body.status, 20).toLowerCase();
     if (!["pending", "approved", "rejected"].includes(nextStatus)) {
       return jsonError(res, 400, "Ungültiger Status.");
     }
 
-    const bookings = readJson(BOOKINGS_FILE, []);
-    const bookingIndex = bookings.findIndex(
-      (entry) => entry.id === req.params.bookingId
-    );
-
-    if (bookingIndex < 0) {
+    const updated = await bookingStore.updateBookingStatus(req.params.bookingId, nextStatus);
+    if (!updated) {
       return jsonError(res, 404, "Die Buchung wurde nicht gefunden.");
     }
-
-    bookings[bookingIndex] = {
-      ...bookings[bookingIndex],
-      status: nextStatus,
-      reviewedAt: new Date().toISOString(),
-    };
-    writeJson(BOOKINGS_FILE, bookings);
 
     return res.json({ message: "Buchung aktualisiert." });
   });
@@ -499,13 +340,14 @@ function createApp() {
     requireAdmin,
     adminMutationLimiter,
     upload.single("image"),
-    (req, res) => {
+    async (req, res) => {
       if (!req.file) {
         return jsonError(res, 400, "Bitte eine Bilddatei auswählen.");
       }
 
-      const entry = {
-        id: crypto.randomUUID(),
+      const imageUrl = await uploadGalleryImage(req.file);
+
+      await galleryStore.createGalleryEntry({
         title: sanitizeText(req.body.title, 80) || "Neues Tattoo",
         description: sanitizeText(req.body.description, 240),
         tags: sanitizeText(req.body.tags, 120)
@@ -513,13 +355,8 @@ function createApp() {
           .map((tag) => sanitizeText(tag, 24))
           .filter(Boolean)
           .slice(0, 6),
-        image: `/media/${req.file.filename}`,
-        createdAt: new Date().toISOString(),
-      };
-
-      const galleryEntries = readJson(GALLERY_FILE, defaultGallery);
-      galleryEntries.push(entry);
-      writeJson(GALLERY_FILE, galleryEntries);
+        image: imageUrl,
+      });
 
       return res.status(201).json({ message: "Galeriebild hochgeladen." });
     }
@@ -529,26 +366,21 @@ function createApp() {
     "/api/admin/gallery/:entryId",
     requireAdmin,
     adminMutationLimiter,
-    (req, res) => {
-    const galleryEntries = readJson(GALLERY_FILE, defaultGallery);
-    const entry = galleryEntries.find((item) => item.id === req.params.entryId);
+    async (req, res) => {
+      const entry = await galleryStore.getGalleryEntry(req.params.entryId);
 
-    if (!entry) {
-      return jsonError(res, 404, "Das Galeriebild wurde nicht gefunden.");
-    }
-
-    const remainingEntries = galleryEntries.filter(
-      (item) => item.id !== req.params.entryId
-    );
-    writeJson(GALLERY_FILE, remainingEntries);
-
-    if (entry.image.startsWith("/media/")) {
-      const filename = path.basename(entry.image);
-      const uploadPath = path.join(UPLOADS_DIR, filename);
-      if (fs.existsSync(uploadPath)) {
-        fs.unlinkSync(uploadPath);
+      if (!entry) {
+        return jsonError(res, 404, "Das Galeriebild wurde nicht gefunden.");
       }
-    }
+
+      await galleryStore.deleteGalleryEntry(req.params.entryId);
+
+      // Only uploaded images (Blob URLs) need cleanup — the seeded
+      // placeholder entries point at static /assets/gallery/*.svg files
+      // that ship with the app and must stay untouched.
+      if (entry.image.startsWith("http")) {
+        await deleteGalleryImage(entry.image);
+      }
 
       return res.json({ message: "Galeriebild gelöscht." });
     }
@@ -564,6 +396,7 @@ function createApp() {
     }
 
     if (error) {
+      console.error(error);
       return jsonError(res, 400, error.message || "Es ist ein Fehler aufgetreten.");
     }
 
@@ -578,18 +411,10 @@ function createApp() {
 // "main" as a serverless entrypoint and rejects it unless the default export is
 // a function or server ("Invalid export found in module ... The default export
 // must be a function or server."). Returning the app keeps that contract while
-// still exposing the helpers used by the tests and the api/ entrypoint as
-// properties on the exported function.
+// still exposing createApp() as a property for the api/ entrypoint and tests.
 const app = createApp();
 
-app.ADMIN_FILE = ADMIN_FILE;
-app.BOOKINGS_FILE = BOOKINGS_FILE;
-app.GALLERY_FILE = GALLERY_FILE;
-app.UPLOADS_DIR = UPLOADS_DIR;
 app.createApp = createApp;
-app.defaultGallery = defaultGallery;
-app.initializeStorage = initializeStorage;
-app.writeJson = writeJson;
 
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);

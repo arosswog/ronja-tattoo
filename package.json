@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "description": "Ronja Tattoo Booking Site",
   "main": "server.js",
+  "engines": {
+    "node": ">=20.6"
+  },
   "scripts": {
-    "dev": "node --watch server.js",
+    "dev": "node --watch --env-file=.env.local server.js",
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --env-file=.env.local --test",
+    "migrate": "node --env-file=.env.local lib/migrate.js",
+    "migrate:prod": "node lib/migrate.js"
   },
   "repository": {
     "type": "git",
@@ -21,8 +26,12 @@
   },
   "homepage": "https://github.com/arosswog/ronja-tattoo#readme",
   "dependencies": {
+    "@vercel/blob": "^2.8.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
-    "multer": "^2.1.1"
+    "multer": "^2.1.1",
+    "pg": "^8.23.0",
+    "resend": "^6.20.0",
+    "stripe": "^22.5.0"
   }
 }
