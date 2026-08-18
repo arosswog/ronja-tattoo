@@ -6,7 +6,7 @@
   --line: rgba(255, 255, 255, 0.1);
   --text: #f7f3ff;
   --muted: #b6accf;
-  --accent: #d585ff;
+  --accent: #f0a3c2;
   --accent-strong: #8df4ff;
   --success: #87f4bf;
   --danger: #ff9db8;
@@ -30,7 +30,7 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(213, 133, 255, 0.22), transparent 30%),
+    radial-gradient(circle at top left, rgba(240, 163, 194, 0.22), transparent 30%),
     radial-gradient(circle at top right, rgba(141, 244, 255, 0.18), transparent 35%),
     linear-gradient(180deg, #09070f 0%, #08060d 50%, #100a18 100%);
   color: var(--text);
@@ -60,7 +60,7 @@ img {
 .ambient-one {
   top: 5rem;
   left: -4rem;
-  background: rgba(213, 133, 255, 0.8);
+  background: rgba(240, 163, 194, 0.8);
 }
 
 .ambient-two {
@@ -112,7 +112,7 @@ img {
   width: 2.8rem;
   height: 2.8rem;
   border-radius: 1rem;
-  background: linear-gradient(135deg, rgba(213, 133, 255, 0.24), rgba(141, 244, 255, 0.2));
+  background: linear-gradient(135deg, rgba(240, 163, 194, 0.24), rgba(141, 244, 255, 0.2));
   border: 1px solid var(--line);
 }
 
@@ -209,7 +209,7 @@ label span {
 }
 
 .button.primary {
-  background: linear-gradient(135deg, rgba(213, 133, 255, 0.3), rgba(141, 244, 255, 0.22));
+  background: linear-gradient(135deg, rgba(240, 163, 194, 0.3), rgba(141, 244, 255, 0.22));
 }
 
 .button.secondary,
@@ -296,7 +296,7 @@ label span {
 
 .preview-tile.active {
   background:
-    linear-gradient(135deg, rgba(213, 133, 255, 0.38), rgba(141, 244, 255, 0.18)),
+    linear-gradient(135deg, rgba(240, 163, 194, 0.38), rgba(141, 244, 255, 0.18)),
     rgba(255, 255, 255, 0.06);
 }
 
