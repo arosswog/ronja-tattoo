@@ -7,6 +7,7 @@ const multer = require("multer");
 
 const { sanitizeText } = require("./lib/sanitize");
 const { allowedUploadTypes, uploadGalleryImage, deleteGalleryImage } = require("./lib/blob");
+const emailNotifier = require("./lib/email");
 const adminStore = require("./lib/store/admin");
 const sessionStore = require("./lib/store/sessions");
 const galleryStore = require("./lib/store/gallery");
@@ -254,8 +255,9 @@ function createApp() {
       );
     }
 
+    let booking;
     try {
-      await bookingStore.createBookingForSlot({
+      booking = await bookingStore.createBookingForSlot({
         slotId,
         name,
         email,
@@ -270,6 +272,13 @@ function createApp() {
       }
       throw error;
     }
+
+    // Booking is already committed at this point — a broken email
+    // integration must never turn into a 500 for a request that actually
+    // succeeded, so failures here are logged, not thrown.
+    emailNotifier.notifyBookingRequest(booking).catch((error) => {
+      console.error("Buchungs-E-Mail-Versand fehlgeschlagen:", error);
+    });
 
     return res.status(201).json({
       message: "Danke! Deine Anfrage ist eingegangen und wartet jetzt auf Freigabe.",
