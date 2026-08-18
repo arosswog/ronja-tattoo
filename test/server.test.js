@@ -13,7 +13,7 @@ async function resetData() {
   // fresh for each test. gallery_entries is repopulated by re-running the
   // (idempotent) seed migration's INSERT afterwards.
   await query(
-    "TRUNCATE bookings, gallery_entries, sessions RESTART IDENTITY CASCADE"
+    "TRUNCATE bookings, gallery_entries, sessions, slots RESTART IDENTITY CASCADE"
   );
   await query(
     `UPDATE admin_account
@@ -182,6 +182,108 @@ test("admin can approve a pending booking", async () => {
     const [updated] = await bookingStore.listBookings();
     assert.equal(updated.status, "approved");
     assert.ok(updated.reviewedAt);
+  });
+});
+
+async function setupAndLogin(baseUrl) {
+  await fetch(`${baseUrl}/api/admin/setup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "RonjaSecure123" }),
+  });
+  const loginResponse = await fetch(`${baseUrl}/api/admin/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "RonjaSecure123" }),
+  });
+  return loginResponse.headers.get("set-cookie");
+}
+
+test("admin can create a slot and it appears on the public slots endpoint", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+
+    const createResponse = await fetch(`${baseUrl}/api/admin/slots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({
+        startsAt: "2026-10-01T10:00:00.000Z",
+        endsAt: "2026-10-01T13:00:00.000Z",
+        label: "Fine-Line Session",
+        depositAmount: "20.50",
+      }),
+    });
+    assert.equal(createResponse.status, 201);
+    const created = await createResponse.json();
+    assert.equal(created.status, "open");
+    assert.equal(created.depositAmountCents, 2050);
+
+    const publicResponse = await fetch(`${baseUrl}/api/slots`);
+    const publicSlots = await publicResponse.json();
+    assert.equal(publicSlots.length, 1);
+    assert.equal(publicSlots[0].id, created.id);
+  });
+});
+
+test("creating a slot at an already-active start time is rejected", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const payload = {
+      startsAt: "2026-10-02T10:00:00.000Z",
+      endsAt: "2026-10-02T13:00:00.000Z",
+      depositAmount: "20",
+    };
+
+    const first = await fetch(`${baseUrl}/api/admin/slots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(first.status, 201);
+
+    const second = await fetch(`${baseUrl}/api/admin/slots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(second.status, 409);
+  });
+});
+
+test("cancelling a slot removes it from the public endpoint, republishing restores it", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+
+    const createResponse = await fetch(`${baseUrl}/api/admin/slots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({
+        startsAt: "2026-10-03T10:00:00.000Z",
+        endsAt: "2026-10-03T13:00:00.000Z",
+        depositAmount: "20",
+      }),
+    });
+    const { id } = await createResponse.json();
+
+    const cancelResponse = await fetch(`${baseUrl}/api/admin/slots/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "cancelled" }),
+    });
+    assert.equal(cancelResponse.status, 200);
+
+    const afterCancel = await (await fetch(`${baseUrl}/api/slots`)).json();
+    assert.equal(afterCancel.length, 0);
+
+    const republishResponse = await fetch(`${baseUrl}/api/admin/slots/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "open" }),
+    });
+    assert.equal(republishResponse.status, 200);
+
+    const afterRepublish = await (await fetch(`${baseUrl}/api/slots`)).json();
+    assert.equal(afterRepublish.length, 1);
   });
 });
 

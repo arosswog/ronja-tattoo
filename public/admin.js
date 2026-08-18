@@ -127,6 +127,12 @@ async function loadDashboard() {
 
   renderBookings(bookings);
   renderGallery(galleryEntries);
+
+  // Defined in admin-slots.js, a separately loaded script — guarded so
+  // admin.js keeps working standalone if that file is ever removed.
+  if (typeof loadSlots === "function") {
+    await loadSlots();
+  }
 }
 
 async function refreshState() {

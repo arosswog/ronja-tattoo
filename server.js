@@ -11,6 +11,7 @@ const adminStore = require("./lib/store/admin");
 const sessionStore = require("./lib/store/sessions");
 const galleryStore = require("./lib/store/gallery");
 const bookingStore = require("./lib/store/bookings");
+const slotStore = require("./lib/store/slots");
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
@@ -63,6 +64,22 @@ function safeCompare(left, right) {
 
 function getClientKey(req) {
   return req.ip || "unknown";
+}
+
+// Admin enters the deposit amount in euros (e.g. "20" or "20,50"); slots are
+// stored in integer cents so money never touches floating point.
+function parseEuroToCents(value) {
+  const normalized = String(value ?? "").trim().replace(",", ".");
+  if (!normalized) {
+    return null;
+  }
+
+  const euros = Number(normalized);
+  if (!Number.isFinite(euros) || euros < 0) {
+    return null;
+  }
+
+  return Math.round(euros * 100);
 }
 
 async function getSession(req) {
@@ -206,6 +223,10 @@ function createApp() {
     res.json(await galleryStore.listGallery());
   });
 
+  app.get("/api/slots", async (_, res) => {
+    res.json(await slotStore.listSlots({ status: "open" }));
+  });
+
   app.post("/api/bookings", bookingLimiter, async (req, res) => {
     const name = sanitizeText(req.body.name, 80);
     const email = sanitizeText(req.body.email, 120).toLowerCase();
@@ -333,6 +354,64 @@ function createApp() {
     }
 
     return res.json({ message: "Buchung aktualisiert." });
+  });
+
+  app.get("/api/admin/slots", requireAdmin, async (_, res) => {
+    res.json(await slotStore.listSlots());
+  });
+
+  app.post("/api/admin/slots", requireAdmin, adminMutationLimiter, async (req, res) => {
+    const startsAt = new Date(req.body.startsAt);
+    const endsAt = new Date(req.body.endsAt);
+    const label = sanitizeText(req.body.label, 120);
+    const depositAmountCents = parseEuroToCents(req.body.depositAmount);
+
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+      return jsonError(res, 400, "Bitte Start- und Endzeit angeben.");
+    }
+    if (endsAt <= startsAt) {
+      return jsonError(res, 400, "Das Ende muss nach dem Start liegen.");
+    }
+    if (depositAmountCents === null) {
+      return jsonError(res, 400, "Bitte einen gültigen Anzahlungsbetrag angeben.");
+    }
+
+    try {
+      const slot = await slotStore.createSlot({
+        startsAt,
+        endsAt,
+        label,
+        depositAmountCents,
+      });
+      return res.status(201).json(slot);
+    } catch (error) {
+      if (error.status === 409) {
+        return jsonError(res, 409, error.message);
+      }
+      throw error;
+    }
+  });
+
+  app.patch("/api/admin/slots/:slotId", requireAdmin, adminMutationLimiter, async (req, res) => {
+    const nextStatus = sanitizeText(req.body.status, 20).toLowerCase();
+    if (!["open", "cancelled"].includes(nextStatus)) {
+      return jsonError(
+        res,
+        400,
+        "Ungültiger Status. Slots können nur veröffentlicht oder zurückgezogen werden."
+      );
+    }
+
+    const updated = await slotStore.setSlotStatus(req.params.slotId, nextStatus);
+    if (!updated) {
+      return jsonError(
+        res,
+        404,
+        "Slot wurde nicht gefunden oder ist bereits reserviert/gebucht."
+      );
+    }
+
+    return res.json(updated);
   });
 
   app.post(

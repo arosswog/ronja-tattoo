@@ -463,6 +463,19 @@ textarea {
   color: var(--danger);
 }
 
+.status-pill.open {
+  color: var(--success);
+}
+
+.status-pill.cancelled {
+  color: var(--danger);
+}
+
+.status-pill.reserved,
+.status-pill.booked {
+  color: #ffd598;
+}
+
 .site-footer {
   display: flex;
   justify-content: space-between;
