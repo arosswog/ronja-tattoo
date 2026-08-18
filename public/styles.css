@@ -318,9 +318,32 @@ label span {
 }
 
 .gallery-grid,
-.booking-list {
+.booking-list,
+.slots-grid {
   display: grid;
   gap: 1rem;
+}
+
+.slot-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.slot-card .slot-card-info strong {
+  display: block;
+}
+
+.slot-card .slot-card-info span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.selected-slot-banner {
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.5rem;
 }
 
 .gallery-card {

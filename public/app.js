@@ -1,8 +1,13 @@
 const galleryGrid = document.querySelector("#gallery-grid");
 const bookingForm = document.querySelector("#booking-form");
 const bookingMessage = document.querySelector("#booking-message");
-const slotSelect = document.querySelector("#slot-select");
+const slotsList = document.querySelector("#slots-list");
 const noSlotsNotice = document.querySelector("#no-slots-notice");
+const selectedSlotBanner = document.querySelector("#selected-slot-banner");
+const changeSlotButton = document.querySelector("#change-slot-button");
+const slotIdInput = document.querySelector("#slot-id-input");
+
+let currentSlots = [];
 
 const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
   dateStyle: "full",
@@ -74,8 +79,60 @@ async function loadGallery() {
   renderGallery(items);
 }
 
+function formatSlot(slot) {
+  return `${dateTimeFormatter.format(new Date(slot.startsAt))} Uhr${
+    slot.label ? ` — ${slot.label}` : ""
+  }`;
+}
+
+function renderSlotsList(slots) {
+  if (!slotsList) {
+    return;
+  }
+
+  slotsList.innerHTML = slots
+    .map(
+      (slot) => `
+        <article class="glass-card slot-card">
+          <div class="slot-card-info">
+            <strong>${escapeHtml(
+              dateTimeFormatter.format(new Date(slot.startsAt))
+            )} Uhr</strong>
+            <span>${escapeHtml(slot.label || "")}</span>
+          </div>
+          <button class="button primary" data-select-slot="${escapeHtml(slot.id)}" type="button">
+            Diesen Termin wählen
+          </button>
+        </article>
+      `
+    )
+    .join("");
+}
+
+// show === true switches to the personal-details step for the given slot;
+// show === false (or omitted) goes back to the slot-picking step.
+function showBookingStep(show, slot) {
+  if (!bookingForm || !slotsList) {
+    return;
+  }
+
+  if (show && slot) {
+    slotIdInput.value = slot.id;
+    if (selectedSlotBanner) {
+      selectedSlotBanner.innerHTML = `<strong>Ausgewählter Termin:</strong> ${escapeHtml(
+        formatSlot(slot)
+      )}`;
+    }
+    bookingForm.hidden = false;
+    slotsList.hidden = true;
+  } else {
+    bookingForm.hidden = true;
+    slotsList.hidden = false;
+  }
+}
+
 async function loadSlots() {
-  if (!slotSelect || !bookingForm || !noSlotsNotice) {
+  if (!slotsList || !bookingForm || !noSlotsNotice) {
     return;
   }
 
@@ -84,27 +141,18 @@ async function loadSlots() {
     throw new Error("Termine konnten nicht geladen werden.");
   }
 
-  const slots = await response.json();
+  currentSlots = await response.json();
+  showBookingStep(false);
 
-  if (!slots.length) {
-    bookingForm.hidden = true;
+  if (!currentSlots.length) {
+    slotsList.innerHTML = "";
+    slotsList.hidden = true;
     noSlotsNotice.hidden = false;
     return;
   }
 
-  slotSelect.innerHTML =
-    '<option value="" disabled selected>Termin wählen …</option>' +
-    slots
-      .map(
-        (slot) =>
-          `<option value="${escapeHtml(slot.id)}">${escapeHtml(
-            dateTimeFormatter.format(new Date(slot.startsAt))
-          )} Uhr${slot.label ? ` — ${escapeHtml(slot.label)}` : ""}</option>`
-      )
-      .join("");
-
-  bookingForm.hidden = false;
   noSlotsNotice.hidden = true;
+  renderSlotsList(currentSlots);
 }
 
 async function submitBooking(event) {
@@ -131,6 +179,24 @@ async function submitBooking(event) {
   setMessage(bookingMessage, data.message, "status-success");
   await loadSlots();
 }
+
+slotsList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-select-slot]");
+  if (!button) {
+    return;
+  }
+
+  const slot = currentSlots.find((entry) => entry.id === button.dataset.selectSlot);
+  if (slot) {
+    setMessage(bookingMessage, "");
+    showBookingStep(true, slot);
+  }
+});
+
+changeSlotButton?.addEventListener("click", () => {
+  setMessage(bookingMessage, "");
+  showBookingStep(false);
+});
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
