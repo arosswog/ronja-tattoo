@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node --watch --env-file=.env.local server.js",
     "start": "node server.js",
-    "test": "NODE_ENV=test node --env-file=.env.local --test",
+    "test": "NODE_ENV=test node --env-file=.env.test.local --test",
     "migrate": "node --env-file=.env.local lib/migrate.js",
     "migrate:prod": "node lib/migrate.js"
   },

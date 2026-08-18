@@ -23,9 +23,39 @@ npm run dev
 
 Danach läuft die Seite unter `http://localhost:3000`.
 
-`npm run dev`/`npm test`/`npm run migrate` laden `.env.local` automatisch
-(`node --env-file`). `.env.local` wird von Vercel generiert und ist
-gitignored — niemals committen.
+`npm run dev`/`npm run migrate` laden `.env.local` automatisch (`node --env-file`).
+`.env.local` wird von Vercel generiert und ist gitignored — niemals committen.
+
+### Test-Datenbank (separat von Produktion!)
+
+`npm test` läuft gegen eine **eigene** Datenbank (`.env.test.local`, ebenfalls
+gitignored) — niemals gegen `.env.local`. Der Testsuite-Reset macht vor/nach
+jedem Test ein `TRUNCATE` auf `bookings`/`slots`/`gallery_entries`/`sessions`;
+lief das mal aus Versehen gegen die Produktions-DB, sind echte Buchungen und
+Termine unwiderruflich weg (ist am 2026-08-18 passiert).
+
+Einmalig einrichten (gleiches Neon-Projekt, eigene Datenbank statt eigener Branch,
+spart einen Neon-API-Token):
+
+```bash
+# Verbindung zur bestehenden DB nehmen, aber eine neue Datenbank anlegen
+node --env-file=.env.local -e '
+  const { Pool } = require("pg");
+  const url = new URL(process.env.POSTGRES_URL);
+  url.pathname = "/neondb";
+  new Pool({ connectionString: url.toString(), max: 1 })
+    .query("CREATE DATABASE ronja_tattoo_test")
+    .then(() => process.exit(0));
+'
+
+# .env.test.local anlegen: POSTGRES_URL="<gleiche URL, aber /ronja_tattoo_test statt /neondb>"
+
+node --env-file=.env.test.local lib/migrate.js
+```
+
+`test/server.test.js` prüft vor jedem Reset zusätzlich `current_database()` und
+bricht ab, wenn der DB-Name nicht `"test"` enthält — zweite Absicherung, falls
+`.env.test.local` mal falsch zeigt.
 
 ## Admin einrichten
 

@@ -7,7 +7,24 @@ const { query, closePool } = require("../lib/db");
 const { runMigrations } = require("../lib/migrate");
 const bookingStore = require("../lib/store/bookings");
 
+// Hard guard against ever repeating the 2026-08-18 incident where this
+// suite's TRUNCATE ran against the production database because the test
+// script loaded the wrong env file. Every test database name in this
+// project must contain "test" — refuse to wipe anything else.
+async function assertRunningAgainstTestDatabase() {
+  const { rows } = await query("SELECT current_database() AS name");
+  const name = rows[0].name;
+  if (!name.includes("test")) {
+    throw new Error(
+      `Refusing to run destructive tests against database "${name}" — ` +
+        `it doesn't look like a test database. Check .env.test.local.`
+    );
+  }
+}
+
 async function resetData() {
+  await assertRunningAgainstTestDatabase();
+
   // TRUNCATE ... RESTART IDENTITY CASCADE is the Postgres equivalent of the
   // old writeJson(file, []) reset — wipes every row and any dependent data,
   // fresh for each test. gallery_entries is repopulated by re-running the
