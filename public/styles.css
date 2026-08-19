@@ -343,6 +343,13 @@ label span {
 
 .gallery-card {
   overflow: hidden;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  cursor: pointer;
+}
+
+.gallery-card:hover {
+  transform: translateY(-5px) scale(1.01);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
 }
 
 .gallery-card img {
@@ -350,6 +357,11 @@ label span {
   width: 100%;
   object-fit: cover;
   background: rgba(255, 255, 255, 0.05);
+  transition: transform 0.4s ease;
+}
+
+.gallery-card:hover img {
+  transform: scale(1.07);
 }
 
 .gallery-card-content {
