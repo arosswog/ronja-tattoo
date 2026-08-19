@@ -67,6 +67,21 @@ function bookingStatusBadge(status) {
   return `<span class="status-pill ${status}">${labelMap[status] || status}</span>`;
 }
 
+function depositStatusBadge(depositStatus, depositAmountCents) {
+  if (!depositStatus || depositStatus === "none") return "";
+  const amount = depositAmountCents
+    ? (depositAmountCents / 100).toLocaleString("de-DE", { style: "currency", currency: "EUR" })
+    : "";
+  const map = {
+    pending: { label: `Anzahlung ausstehend${amount ? ` (${amount})` : ""}`, css: "deposit-pending" },
+    paid: { label: `Anzahlung bezahlt${amount ? ` (${amount})` : ""} ✓`, css: "deposit-paid" },
+    failed: { label: "Zahlung fehlgeschlagen", css: "deposit-failed" },
+    refunded: { label: "Erstattet", css: "deposit-refunded" },
+  };
+  const entry = map[depositStatus];
+  return entry ? `<span class="status-pill ${entry.css}">${entry.label}</span>` : "";
+}
+
 function renderBookings(bookings) {
   if (!bookings.length) {
     bookingList.innerHTML =
@@ -85,7 +100,10 @@ function renderBookings(bookings) {
                 booking.phone || "kein Kontaktkanal"
               )}</p>
             </div>
-            ${bookingStatusBadge(booking.status)}
+            <div style="display:flex;flex-direction:column;gap:0.4rem;align-items:flex-end;">
+              ${bookingStatusBadge(booking.status)}
+              ${depositStatusBadge(booking.depositStatus, booking.depositAmountCents)}
+            </div>
           </div>
           <p><strong>Termin:</strong> ${escapeHtml(formatPreferredDate(booking.preferredDate))}</p>
           <p><strong>Körperstelle:</strong> ${escapeHtml(booking.placement || "offen")}</p>
@@ -94,12 +112,15 @@ function renderBookings(bookings) {
           <div class="booking-actions">
             ${
               booking.status === "approved"
-                ? `<button class="button status" data-status="cancelled" data-booking-id="${booking.id}" type="button">Stornieren</button>`
+                ? `
+              ${booking.depositStatus !== "paid" && booking.depositAmountCents ? `<button class="button primary" data-checkout-booking-id="${booking.id}" type="button">Anzahlung anfordern</button>` : ""}
+              <button class="button status" data-status="cancelled" data-booking-id="${booking.id}" type="button">Stornieren</button>
+              `
                 : `
-            <button class="button status" data-status="approved" data-booking-id="${booking.id}" type="button">Freigeben</button>
-            <button class="button status" data-status="pending" data-booking-id="${booking.id}" type="button">Auf pending</button>
-            <button class="button status" data-status="rejected" data-booking-id="${booking.id}" type="button">Ablehnen</button>
-            `
+              <button class="button status" data-status="approved" data-booking-id="${booking.id}" type="button">Freigeben</button>
+              <button class="button status" data-status="pending" data-booking-id="${booking.id}" type="button">Auf pending</button>
+              <button class="button status" data-status="rejected" data-booking-id="${booking.id}" type="button">Ablehnen</button>
+              `
             }
           </div>
         </article>
@@ -184,6 +205,25 @@ document.addEventListener("click", async (event) => {
     } catch (error) {
       setMessage(error.message, "status-error");
     }
+  }
+
+  const checkoutButton = event.target.closest("[data-checkout-booking-id]");
+  if (checkoutButton) {
+    checkoutButton.disabled = true;
+    checkoutButton.textContent = "Wird gesendet…";
+    try {
+      const data = await getJson(
+        `/api/admin/bookings/${checkoutButton.dataset.checkoutBookingId}/checkout`,
+        { method: "POST" }
+      );
+      setMessage(data.message, "status-success");
+      await loadDashboard();
+    } catch (error) {
+      setMessage(error.message, "status-error");
+      checkoutButton.disabled = false;
+      checkoutButton.textContent = "Anzahlung anfordern";
+    }
+    return;
   }
 
   const editButton = event.target.closest("[data-edit-gallery-id]");

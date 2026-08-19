@@ -4,6 +4,7 @@ const path = require("path");
 const express = require("express");
 const { rateLimit } = require("express-rate-limit");
 const multer = require("multer");
+const Stripe = require("stripe");
 
 const { sanitizeText } = require("./lib/sanitize");
 const { allowedUploadTypes, uploadGalleryImage, deleteGalleryImage } = require("./lib/blob");
@@ -13,6 +14,16 @@ const sessionStore = require("./lib/store/sessions");
 const galleryStore = require("./lib/store/gallery");
 const bookingStore = require("./lib/store/bookings");
 const slotStore = require("./lib/store/slots");
+
+let stripeClient = null;
+function getStripe() {
+  if (!stripeClient) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error("STRIPE_SECRET_KEY ist nicht gesetzt.");
+    stripeClient = new Stripe(key);
+  }
+  return stripeClient;
+}
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
@@ -200,6 +211,45 @@ function createApp() {
   });
 
   app.disable("x-powered-by");
+
+  // Stripe webhook must receive the raw body — register before express.json().
+  app.post("/api/webhooks/stripe", express.raw({ type: "application/json" }), async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    let event;
+    try {
+      event = getStripe().webhooks.constructEvent(req.body, sig, secret);
+    } catch (err) {
+      console.error("Stripe webhook signature check failed:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const booking = await bookingStore.getBookingByStripeSession(session.id);
+      if (booking) {
+        await bookingStore.updateDepositStatus(booking.id, {
+          depositStatus: "paid",
+          stripePaymentIntentId: session.payment_intent,
+        });
+        emailNotifier.notifyDepositReceived(booking).catch((err) => {
+          console.error("Zahlungsbestätigungs-E-Mail fehlgeschlagen:", err);
+        });
+      }
+    }
+
+    if (event.type === "checkout.session.expired") {
+      const session = event.data.object;
+      const booking = await bookingStore.getBookingByStripeSession(session.id);
+      if (booking && booking.depositStatus === "pending") {
+        await bookingStore.updateDepositStatus(booking.id, { depositStatus: "failed" });
+      }
+    }
+
+    return res.json({ received: true });
+  });
+
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: false, limit: "1mb" }));
   app.use((req, res, next) => {
@@ -357,6 +407,63 @@ function createApp() {
   app.get("/api/admin/bookings", requireAdmin, async (_, res) => {
     res.json(await bookingStore.listBookings());
   });
+
+  app.post(
+    "/api/admin/bookings/:bookingId/checkout",
+    requireAdmin,
+    adminMutationLimiter,
+    async (req, res) => {
+      const booking = await bookingStore.getBooking(req.params.bookingId);
+
+      if (!booking) return jsonError(res, 404, "Buchung nicht gefunden.");
+      if (booking.status !== "approved")
+        return jsonError(res, 400, "Nur freigegebene Buchungen können eine Anzahlung anfordern.");
+      if (booking.depositStatus === "paid")
+        return jsonError(res, 409, "Die Anzahlung wurde bereits bezahlt.");
+      if (!booking.depositAmountCents)
+        return jsonError(res, 400, "Kein Anzahlungsbetrag für diese Buchung hinterlegt.");
+
+      const baseUrl = (process.env.APP_BASE_URL || "https://www.rnjatatts.com").replace(/\/$/, "");
+      const when = new Date(booking.preferredDate).toLocaleDateString("de-DE", {
+        dateStyle: "full",
+        timeZone: "Europe/Berlin",
+      });
+
+      const session = await getStripe().checkout.sessions.create({
+        mode: "payment",
+        automatic_payment_methods: { enabled: true },
+        line_items: [
+          {
+            price_data: {
+              currency: "eur",
+              product_data: {
+                name: "Anzahlung Tattoo-Termin",
+                description: `Termin am ${when}`,
+              },
+              unit_amount: booking.depositAmountCents,
+            },
+            quantity: 1,
+          },
+        ],
+        customer_email: booking.email,
+        metadata: { bookingId: booking.id },
+        expires_at: Math.floor(Date.now() / 1000) + 60 * 60 * 24,
+        success_url: `${baseUrl}/zahlung-erfolgreich.html`,
+        cancel_url: `${baseUrl}/zahlung-abgebrochen.html`,
+      });
+
+      await bookingStore.updateDepositStatus(booking.id, {
+        depositStatus: "pending",
+        stripeCheckoutSessionId: session.id,
+      });
+
+      emailNotifier.notifyDepositRequest(booking, session.url).catch((err) => {
+        console.error("Zahlungslink-E-Mail fehlgeschlagen:", err);
+      });
+
+      return res.json({ message: `Zahlungslink wurde an ${booking.email} gesendet.` });
+    }
+  );
 
   app.patch("/api/admin/bookings/:bookingId", requireAdmin, async (req, res) => {
     const nextStatus = sanitizeText(req.body.status, 20).toLowerCase();

@@ -598,3 +598,9 @@ textarea {
   margin-top: 0.25rem;
   margin-bottom: 1.25rem;
 }
+
+/* Deposit status badges */
+.status-pill.deposit-paid   { color: var(--success); }
+.status-pill.deposit-pending { color: #ffd598; }
+.status-pill.deposit-failed  { color: var(--danger); }
+.status-pill.deposit-refunded { color: var(--muted); }
