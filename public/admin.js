@@ -8,6 +8,11 @@ const setupForm = document.querySelector("#setup-form");
 const loginForm = document.querySelector("#login-form");
 const uploadForm = document.querySelector("#upload-form");
 const logoutButton = document.querySelector("#logout-button");
+const galleryEditDialog = document.querySelector("#gallery-edit-dialog");
+const galleryEditForm = document.querySelector("#gallery-edit-form");
+const galleryEditCancel = document.querySelector("#gallery-edit-cancel");
+
+let currentGalleryEntries = [];
 
 function setMessage(message, type = "") {
   adminMessage.textContent = message;
@@ -104,6 +109,8 @@ function renderBookings(bookings) {
 }
 
 function renderGallery(entries) {
+  currentGalleryEntries = entries;
+
   if (!entries.length) {
     adminGalleryGrid.innerHTML =
       '<p class="section-text">Noch keine Galerie-Einträge vorhanden.</p>';
@@ -128,6 +135,7 @@ function renderGallery(entries) {
                 .join("")}
             </div>
             <div class="gallery-actions">
+              <button class="button ghost" data-edit-gallery-id="${entry.id}" type="button">Bearbeiten</button>
               <button class="button ghost" data-delete-gallery-id="${entry.id}" type="button">Löschen</button>
             </div>
           </div>
@@ -178,6 +186,18 @@ document.addEventListener("click", async (event) => {
     }
   }
 
+  const editButton = event.target.closest("[data-edit-gallery-id]");
+  if (editButton) {
+    const entry = currentGalleryEntries.find((e) => e.id === editButton.dataset.editGalleryId);
+    if (entry) {
+      galleryEditForm.elements.entryId.value = entry.id;
+      galleryEditForm.elements.title.value = entry.title;
+      galleryEditForm.elements.description.value = entry.description || "";
+      galleryEditForm.elements.tags.value = (entry.tags || []).join(", ");
+      galleryEditDialog.showModal();
+    }
+  }
+
   const galleryButton = event.target.closest("[data-delete-gallery-id]");
   if (galleryButton) {
     try {
@@ -189,6 +209,31 @@ document.addEventListener("click", async (event) => {
     } catch (error) {
       setMessage(error.message, "status-error");
     }
+  }
+});
+
+galleryEditCancel?.addEventListener("click", () => galleryEditDialog.close());
+
+galleryEditForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(galleryEditForm);
+  const entryId = formData.get("entryId");
+
+  try {
+    await getJson(`/api/admin/gallery/${entryId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: formData.get("title"),
+        description: formData.get("description"),
+        tags: formData.get("tags"),
+      }),
+    });
+    setMessage("Galerieeintrag aktualisiert.", "status-success");
+    galleryEditDialog.close();
+    await loadDashboard();
+  } catch (error) {
+    setMessage(error.message, "status-error");
   }
 });
 

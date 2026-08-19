@@ -563,3 +563,26 @@ textarea {
     padding: 1rem;
   }
 }
+
+/* Gallery edit dialog */
+#gallery-edit-dialog {
+  border: none;
+  background: transparent;
+  padding: 0;
+  max-width: min(520px, 92vw);
+  width: 100%;
+}
+
+#gallery-edit-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+}
+
+.edit-dialog-card {
+  padding: 1.5rem;
+}
+
+.edit-dialog-card h2 {
+  margin-top: 0.25rem;
+  margin-bottom: 1.25rem;
+}

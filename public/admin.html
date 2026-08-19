@@ -157,6 +157,32 @@
       <p class="status-message" id="admin-message" aria-live="polite"></p>
     </main>
 
+    <dialog id="gallery-edit-dialog">
+      <div class="glass-card edit-dialog-card">
+        <p class="eyebrow">Galerie</p>
+        <h2>Eintrag bearbeiten</h2>
+        <form id="gallery-edit-form" class="stack-form">
+          <input type="hidden" name="entryId" />
+          <label>
+            <span>Titel</span>
+            <input name="title" type="text" maxlength="80" required />
+          </label>
+          <label>
+            <span>Beschreibung</span>
+            <textarea name="description" rows="4" maxlength="240"></textarea>
+          </label>
+          <label>
+            <span>Tags (kommagetrennt)</span>
+            <input name="tags" type="text" maxlength="120" placeholder="fine line, floral" />
+          </label>
+          <div class="gallery-actions">
+            <button class="button primary" type="submit">Speichern</button>
+            <button class="button ghost" id="gallery-edit-cancel" type="button">Abbrechen</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
     <script src="/admin.js" defer></script>
     <script src="/admin-slots.js" defer></script>
   </body>

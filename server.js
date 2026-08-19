@@ -457,6 +457,35 @@ function createApp() {
     }
   );
 
+  app.patch(
+    "/api/admin/gallery/:entryId",
+    requireAdmin,
+    adminMutationLimiter,
+    async (req, res) => {
+      const entry = await galleryStore.getGalleryEntry(req.params.entryId);
+
+      if (!entry) {
+        return jsonError(res, 404, "Das Galeriebild wurde nicht gefunden.");
+      }
+
+      const title = sanitizeText(req.body.title, 80) || "Neues Tattoo";
+      const description = sanitizeText(req.body.description, 240);
+      const tags = sanitizeText(req.body.tags, 120)
+        .split(",")
+        .map((tag) => sanitizeText(tag, 24))
+        .filter(Boolean)
+        .slice(0, 6);
+
+      const updated = await galleryStore.updateGalleryEntry(req.params.entryId, {
+        title,
+        description,
+        tags,
+      });
+
+      return res.json(updated);
+    }
+  );
+
   app.delete(
     "/api/admin/gallery/:entryId",
     requireAdmin,
