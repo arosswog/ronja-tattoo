@@ -270,6 +270,12 @@ function createApp() {
     res.sendFile(path.join(PUBLIC_DIR, "admin.html"));
   });
 
+  app.get("/api/version", (_, res) => {
+    const { version } = require("./package.json");
+    const date = new Date().toISOString().slice(0, 10);
+    res.json({ version, date, label: `v${version} · ${date}` });
+  });
+
   app.get("/api/gallery", async (_, res) => {
     res.json(await galleryStore.listGallery());
   });

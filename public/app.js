@@ -220,4 +220,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     });
   }
+
+  // Version badge
+  const versionBadge = document.getElementById("version-badge");
+  if (versionBadge) {
+    fetch("/api/version")
+      .then((r) => r.json())
+      .then((d) => { versionBadge.textContent = d.label; })
+      .catch(() => {});
+  }
 });
