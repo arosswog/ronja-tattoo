@@ -7,7 +7,7 @@ const multer = require("multer");
 const Stripe = require("stripe");
 
 const { sanitizeText } = require("./lib/sanitize");
-const { allowedUploadTypes, uploadGalleryImage, deleteGalleryImage } = require("./lib/blob");
+const { allowedUploadTypes, uploadGalleryImage, deleteGalleryImage, uploadReferenceImage } = require("./lib/blob");
 const emailNotifier = require("./lib/email");
 const adminStore = require("./lib/store/admin");
 const sessionStore = require("./lib/store/sessions");
@@ -153,12 +153,12 @@ function isRateLimited(req) {
   return windowState.count >= MAX_LOGIN_ATTEMPTS;
 }
 
-function createUploadMiddleware() {
+function createUploadMiddleware(maxFiles = 1) {
   return multer({
     storage: multer.memoryStorage(),
     limits: {
       fileSize: 8 * 1024 * 1024,
-      files: 1,
+      files: maxFiles,
     },
     fileFilter: (_, file, callback) => {
       if (!allowedUploadTypes.has(file.mimetype)) {
@@ -177,7 +177,8 @@ function createApp() {
   // client IP via X-Forwarded-For. Trust a single proxy hop so req.ip is
   // accurate and express-rate-limit does not reject the forwarded header.
   app.set("trust proxy", 1);
-  const upload = createUploadMiddleware();
+  const upload = createUploadMiddleware(1);
+  const referenceUpload = createUploadMiddleware(3);
   const limiterOptions = {
     standardHeaders: "draft-8",
     legacyHeaders: false,
@@ -242,8 +243,8 @@ function createApp() {
     if (event.type === "checkout.session.expired") {
       const session = event.data.object;
       const booking = await bookingStore.getBookingByStripeSession(session.id);
-      if (booking && booking.depositStatus === "pending") {
-        await bookingStore.updateDepositStatus(booking.id, { depositStatus: "failed" });
+      if (booking) {
+        await bookingStore.expireBooking(booking.id);
       }
     }
 
@@ -284,62 +285,62 @@ function createApp() {
     res.json(await slotStore.listSlots({ status: "open" }));
   });
 
-  app.post("/api/bookings", bookingLimiter, async (req, res) => {
-    const name = sanitizeText(req.body.name, 80);
-    const email = sanitizeText(req.body.email, 120).toLowerCase();
-    const phone = sanitizeText(req.body.phone, 40);
-    const slotId = sanitizeText(req.body.slotId, 60);
-    const placement = sanitizeText(req.body.placement, 80);
-    const size = sanitizeText(req.body.size, 80);
-    const designIdea = sanitizeText(req.body.designIdea, 1500);
+  app.post(
+    "/api/bookings",
+    bookingLimiter,
+    referenceUpload.array("references", 3),
+    async (req, res) => {
+      const name = sanitizeText(req.body.name, 80);
+      const email = sanitizeText(req.body.email, 120).toLowerCase();
+      const instagram = sanitizeText(req.body.instagram, 80);
+      const slotId = sanitizeText(req.body.slotId, 60);
+      const placement = sanitizeText(req.body.placement, 80);
+      const size = sanitizeText(req.body.size, 80);
+      const designIdea = sanitizeText(req.body.designIdea, 1500);
 
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (name.length < 2) {
-      return jsonError(res, 400, "Bitte einen Namen mit mindestens zwei Zeichen angeben.");
-    }
-    if (!emailPattern.test(email)) {
-      return jsonError(res, 400, "Bitte eine gültige E-Mail-Adresse angeben.");
-    }
-    if (!slotId) {
-      return jsonError(res, 400, "Bitte einen Termin auswählen.");
-    }
-    if (designIdea.length < 20) {
-      return jsonError(
-        res,
-        400,
-        "Bitte beschreibe deine Tattoo-Idee mit mindestens 20 Zeichen."
-      );
-    }
-
-    let booking;
-    try {
-      booking = await bookingStore.createBookingForSlot({
-        slotId,
-        name,
-        email,
-        phone,
-        placement,
-        size,
-        designIdea,
-      });
-    } catch (error) {
-      if (error.status === 404 || error.status === 409) {
-        return jsonError(res, error.status, error.message);
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (name.length < 2) {
+        return jsonError(res, 400, "Bitte einen Namen mit mindestens zwei Zeichen angeben.");
       }
-      throw error;
+      if (!emailPattern.test(email)) {
+        return jsonError(res, 400, "Bitte eine gültige E-Mail-Adresse angeben.");
+      }
+      if (!slotId) {
+        return jsonError(res, 400, "Bitte einen Termin auswählen.");
+      }
+
+      const referenceImages = await Promise.all(
+        (req.files || []).map((file) => uploadReferenceImage(file))
+      );
+
+      let booking;
+      try {
+        booking = await bookingStore.createBookingForSlot({
+          slotId,
+          name,
+          email,
+          instagram,
+          placement,
+          size,
+          designIdea,
+          referenceImages,
+        });
+      } catch (error) {
+        if (error.status === 404 || error.status === 409) {
+          return jsonError(res, error.status, error.message);
+        }
+        throw error;
+      }
+
+      emailNotifier.notifyBookingRequest(booking).catch((error) => {
+        console.error("Buchungs-E-Mail-Versand fehlgeschlagen:", error);
+      });
+
+      return res.status(201).json({
+        message: "Danke! Deine Anfrage ist eingegangen und wartet jetzt auf Freigabe.",
+      });
     }
-
-    // Booking is already committed at this point — a broken email
-    // integration must never turn into a 500 for a request that actually
-    // succeeded, so failures here are logged, not thrown.
-    emailNotifier.notifyBookingRequest(booking).catch((error) => {
-      console.error("Buchungs-E-Mail-Versand fehlgeschlagen:", error);
-    });
-
-    return res.status(201).json({
-      message: "Danke! Deine Anfrage ist eingegangen und wartet jetzt auf Freigabe.",
-    });
-  });
+  );
 
   app.get("/api/admin/status", async (req, res) => {
     const adminSettings = await adminStore.getAdminSettings();
@@ -414,6 +415,47 @@ function createApp() {
     res.json(await bookingStore.listBookings());
   });
 
+  async function sendCheckoutForBooking(booking) {
+    const baseUrl = (process.env.APP_BASE_URL || "https://www.rnjatatts.com").replace(/\/$/, "");
+    const when = new Date(booking.preferredDate).toLocaleDateString("de-DE", {
+      dateStyle: "full",
+      timeZone: "Europe/Berlin",
+    });
+
+    const session = await getStripe().checkout.sessions.create({
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: "eur",
+            product_data: {
+              name: "Anzahlung Tattoo-Termin",
+              description: `Termin am ${when}`,
+            },
+            unit_amount: booking.depositAmountCents,
+          },
+          quantity: 1,
+        },
+      ],
+      customer_email: booking.email,
+      metadata: { bookingId: booking.id },
+      success_url: `${baseUrl}/zahlung-erfolgreich.html`,
+      cancel_url: `${baseUrl}/zahlung-abgebrochen.html`,
+    });
+
+    await bookingStore.updateDepositStatus(booking.id, {
+      depositStatus: "pending",
+      stripeCheckoutSessionId: session.id,
+    });
+
+    emailNotifier.notifyDepositRequest(booking, session.url).catch((err) => {
+      console.error("Zahlungslink-E-Mail fehlgeschlagen:", err);
+    });
+
+    return session;
+  }
+
+  // Resend payment link manually (e.g. customer missed the first email).
   app.post(
     "/api/admin/bookings/:bookingId/checkout",
     requireAdmin,
@@ -429,49 +471,13 @@ function createApp() {
       if (!booking.depositAmountCents)
         return jsonError(res, 400, "Kein Anzahlungsbetrag für diese Buchung hinterlegt.");
 
-      const baseUrl = (process.env.APP_BASE_URL || "https://www.rnjatatts.com").replace(/\/$/, "");
-      const when = new Date(booking.preferredDate).toLocaleDateString("de-DE", {
-        dateStyle: "full",
-        timeZone: "Europe/Berlin",
-      });
-
-      const session = await getStripe().checkout.sessions.create({
-        mode: "payment",
-        automatic_payment_methods: { enabled: true },
-        line_items: [
-          {
-            price_data: {
-              currency: "eur",
-              product_data: {
-                name: "Anzahlung Tattoo-Termin",
-                description: `Termin am ${when}`,
-              },
-              unit_amount: booking.depositAmountCents,
-            },
-            quantity: 1,
-          },
-        ],
-        customer_email: booking.email,
-        metadata: { bookingId: booking.id },
-        expires_at: Math.floor(Date.now() / 1000) + 60 * 60 * 24,
-        success_url: `${baseUrl}/zahlung-erfolgreich.html`,
-        cancel_url: `${baseUrl}/zahlung-abgebrochen.html`,
-      });
-
-      await bookingStore.updateDepositStatus(booking.id, {
-        depositStatus: "pending",
-        stripeCheckoutSessionId: session.id,
-      });
-
-      emailNotifier.notifyDepositRequest(booking, session.url).catch((err) => {
-        console.error("Zahlungslink-E-Mail fehlgeschlagen:", err);
-      });
+      await sendCheckoutForBooking(booking);
 
       return res.json({ message: `Zahlungslink wurde an ${booking.email} gesendet.` });
     }
   );
 
-  app.patch("/api/admin/bookings/:bookingId", requireAdmin, async (req, res) => {
+  app.patch("/api/admin/bookings/:bookingId", requireAdmin, adminMutationLimiter, async (req, res) => {
     const nextStatus = sanitizeText(req.body.status, 20).toLowerCase();
     if (!["pending", "approved", "rejected", "cancelled"].includes(nextStatus)) {
       return jsonError(res, 400, "Ungültiger Status.");
@@ -480,6 +486,12 @@ function createApp() {
     const updated = await bookingStore.updateBookingStatus(req.params.bookingId, nextStatus);
     if (!updated) {
       return jsonError(res, 404, "Die Buchung wurde nicht gefunden.");
+    }
+
+    if (nextStatus === "approved" && updated.depositAmountCents) {
+      sendCheckoutForBooking(updated).catch((err) => {
+        console.error("Auto-Checkout nach Bestätigung fehlgeschlagen:", err);
+      });
     }
 
     return res.json({ message: "Buchung aktualisiert." });

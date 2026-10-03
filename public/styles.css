@@ -528,9 +528,17 @@ textarea {
 .site-footer {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   padding: 1rem 0 2rem;
   font-size: 0.92rem;
+}
+
+.footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
 }
 
 .version-badge {
@@ -611,3 +619,62 @@ textarea {
 .status-pill.deposit-pending { color: #ffd598; }
 .status-pill.deposit-failed  { color: var(--danger); }
 .status-pill.deposit-refunded { color: var(--muted); }
+
+/* Booking status filter */
+.booking-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.filter-pill:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.filter-pill.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+.filter-count {
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
+/* Reference images in booking cards */
+.reference-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.reference-thumb {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  transition: opacity 0.15s;
+}
+
+.reference-thumb:hover {
+  opacity: 0.8;
+}
