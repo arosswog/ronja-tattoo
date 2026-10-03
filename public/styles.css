@@ -250,29 +250,17 @@ label span {
   font-size: 0.9rem;
 }
 
-.stats-grid,
 .content-grid,
 .dashboard-grid {
   display: grid;
   gap: 1rem;
 }
 
-.stats-grid {
-  margin-top: 1.25rem;
-}
-
-.stats-grid article,
 .booking-card,
 .gallery-card {
   border: 1px solid var(--line);
   border-radius: 1.1rem;
   background: rgba(242, 220, 222, 0.35);
-}
-
-.stats-grid article {
-  padding: 1rem;
-  display: grid;
-  gap: 0.35rem;
 }
 
 .panel-badge,
@@ -595,10 +583,6 @@ textarea {
 
   .form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .stats-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
