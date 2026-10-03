@@ -1,16 +1,20 @@
 :root {
-  color-scheme: dark;
-  --bg: #08060d;
-  --bg-soft: rgba(18, 15, 31, 0.78);
-  --card: rgba(22, 18, 35, 0.72);
-  --line: rgba(255, 255, 255, 0.1);
-  --text: #f7f3ff;
-  --muted: #b6accf;
-  --accent: #f0a3c2;
-  --accent-strong: #f0c48a;
-  --success: #87f4bf;
-  --danger: #ff9db8;
-  --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  color-scheme: light;
+  --bg: #fdfbef;
+  --bg-soft: #faf4ee;
+  --card: rgba(255, 255, 255, 0.78);
+  --mauve: #d5b0b7;
+  --rosa: #f2dcde;
+  --beige: #ede5d7;
+  --line: rgba(122, 90, 105, 0.16);
+  --text: #3a2a33;
+  --muted: #6f5b66;
+  --accent: #ad5279;
+  --accent-strong: #8f6136;
+  --success: #2f7d5a;
+  --danger: #c0435f;
+  --pending: #8f6136;
+  --shadow: 0 20px 60px rgba(122, 90, 105, 0.14);
   font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -30,9 +34,9 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(240, 163, 194, 0.22), transparent 30%),
-    radial-gradient(circle at top right, rgba(240, 196, 138, 0.18), transparent 35%),
-    linear-gradient(180deg, #09070f 0%, #08060d 50%, #100a18 100%);
+    radial-gradient(58rem 34rem at 8% -8%, rgba(242, 220, 222, 0.85), transparent 60%),
+    radial-gradient(50rem 30rem at 100% 4%, rgba(237, 229, 215, 0.75), transparent 58%),
+    linear-gradient(180deg, #fffdf7 0%, var(--bg) 45%, #fbf6f1 100%);
   color: var(--text);
 }
 
@@ -53,20 +57,20 @@ img {
   height: 16rem;
   border-radius: 999px;
   filter: blur(70px);
-  opacity: 0.32;
+  opacity: 0.4;
   pointer-events: none;
 }
 
 .ambient-one {
   top: 5rem;
   left: -4rem;
-  background: rgba(240, 163, 194, 0.8);
+  background: rgba(242, 220, 222, 0.9);
 }
 
 .ambient-two {
   top: 20rem;
   right: -5rem;
-  background: rgba(240, 196, 138, 0.7);
+  background: rgba(237, 229, 215, 0.85);
 }
 
 .site-header,
@@ -112,8 +116,9 @@ img {
   width: 2.8rem;
   height: 2.8rem;
   border-radius: 1rem;
-  background: linear-gradient(135deg, rgba(240, 163, 194, 0.24), rgba(240, 196, 138, 0.2));
+  background: linear-gradient(135deg, rgba(242, 220, 222, 0.95), rgba(237, 229, 215, 0.9));
   border: 1px solid var(--line);
+  color: var(--accent);
 }
 
 .header-links {
@@ -220,12 +225,24 @@ label span {
 }
 
 .button.primary {
-  background: linear-gradient(135deg, rgba(240, 163, 194, 0.3), rgba(240, 196, 138, 0.22));
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 10px 26px rgba(173, 82, 121, 0.28);
+}
+
+.button.primary:hover {
+  background: #9d4066;
 }
 
 .button.secondary,
 .button.ghost {
-  background: rgba(255, 255, 255, 0.03);
+  background: #ffffff;
+  color: var(--accent);
+}
+
+.button.secondary:hover,
+.button.ghost:hover {
+  border-color: var(--accent);
 }
 
 .button.status {
@@ -249,7 +266,7 @@ label span {
 .gallery-card {
   border: 1px solid var(--line);
   border-radius: 1.1rem;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(242, 220, 222, 0.35);
 }
 
 .stats-grid article {
@@ -349,14 +366,14 @@ label span {
 
 .gallery-card:hover {
   transform: translateY(-5px) scale(1.01);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 16px 48px rgba(122, 90, 105, 0.18);
 }
 
 .gallery-card img {
   aspect-ratio: 4 / 5;
   width: 100%;
   object-fit: cover;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--beige);
   transition: transform 0.4s ease;
 }
 
@@ -429,7 +446,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 1rem;
   padding: 0.9rem 1rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: #ffffff;
   color: var(--text);
   font: inherit;
 }
@@ -501,7 +518,7 @@ textarea {
 }
 
 .status-pill.pending {
-  color: #ffd598;
+  color: var(--pending);
 }
 
 .status-pill.approved {
@@ -522,7 +539,24 @@ textarea {
 
 .status-pill.reserved,
 .status-pill.booked {
-  color: #ffd598;
+  color: var(--pending);
+}
+
+/* Soft state tints for readable pills on the light background */
+.status-pill.approved,
+.status-pill.open {
+  background: rgba(47, 125, 90, 0.1);
+}
+
+.status-pill.pending,
+.status-pill.reserved,
+.status-pill.booked {
+  background: rgba(143, 97, 54, 0.1);
+}
+
+.status-pill.rejected,
+.status-pill.cancelled {
+  background: rgba(192, 67, 95, 0.1);
 }
 
 .site-footer {
@@ -544,7 +578,7 @@ textarea {
 .version-badge {
   font-size: 0.75rem;
   color: var(--muted);
-  opacity: 0.6;
+  opacity: 0.8;
   font-variant-numeric: tabular-nums;
 }
 
@@ -601,7 +635,7 @@ textarea {
 }
 
 #gallery-edit-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(58, 42, 51, 0.45);
   backdrop-filter: blur(4px);
 }
 
@@ -616,7 +650,7 @@ textarea {
 
 /* Deposit status badges */
 .status-pill.deposit-paid   { color: var(--success); }
-.status-pill.deposit-pending { color: #ffd598; }
+.status-pill.deposit-pending { color: var(--pending); }
 .status-pill.deposit-failed  { color: var(--danger); }
 .status-pill.deposit-refunded { color: var(--muted); }
 
