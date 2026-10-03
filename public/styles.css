@@ -262,7 +262,6 @@ label span {
   font-size: 0.9rem;
 }
 
-.content-grid,
 .dashboard-grid {
   display: grid;
   gap: 1rem;
@@ -301,7 +300,7 @@ label span {
   object-position: top center;
 }
 
-.content-grid article {
+.info-card {
   padding: 1.25rem;
 }
 
@@ -582,8 +581,31 @@ textarea {
 }
 
 @media (min-width: 720px) {
-  .hero,
-  .content-grid,
+  .hero {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "photo copy"
+      "info1 copy"
+      "info2 copy";
+    align-items: start;
+  }
+
+  .hero-panel {
+    grid-area: photo;
+  }
+
+  .hero-copy {
+    grid-area: copy;
+  }
+
+  .hero .info-card:nth-of-type(1) {
+    grid-area: info1;
+  }
+
+  .hero .info-card:nth-of-type(2) {
+    grid-area: info2;
+  }
+
   .dashboard-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
