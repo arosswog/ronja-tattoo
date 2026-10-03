@@ -170,8 +170,8 @@
               <input name="email" type="email" required maxlength="120" />
             </label>
             <label>
-              <span>Telefon / IG</span>
-              <input name="phone" type="text" maxlength="40" />
+              <span>Instagram</span>
+              <input name="instagram" type="text" maxlength="80" placeholder="@deinprofil" />
             </label>
             <label>
               <span>Körperstelle</span>
@@ -188,11 +188,15 @@
             <textarea
               name="designIdea"
               rows="6"
-              minlength="20"
               maxlength="1500"
               required
               placeholder="Beschreibe Stil, Motiv, Stimmung und eventuelle Referenzen."
             ></textarea>
+          </label>
+
+          <label>
+            <span>Referenzbilder <small>(optional, max. 3 Bilder, JPG/PNG/WEBP)</small></span>
+            <input name="references" type="file" accept="image/jpeg,image/png,image/webp" multiple />
           </label>
 
           <div class="form-actions">
@@ -210,8 +214,10 @@
 
     <footer class="site-footer">
       <p>Ronja Tattoo — Fine Line & Custom Tattoos in Stuttgart.</p>
-      <a href="/admin">Zum Admin-Bereich</a>
-      <p class="version-badge" id="version-badge"></p>
+      <div class="footer-meta">
+        <a href="/admin">Zum Admin-Bereich</a>
+        <span class="version-badge" id="version-badge"></span>
+      </div>
     </footer>
 
     <script src="/app.js" defer></script>

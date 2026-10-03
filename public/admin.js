@@ -4,6 +4,9 @@ const dashboard = document.querySelector("#dashboard");
 const adminMessage = document.querySelector("#admin-message");
 const bookingList = document.querySelector("#booking-list");
 const adminGalleryGrid = document.querySelector("#admin-gallery-grid");
+
+let allBookings = [];
+let activeFilter = "all";
 const setupForm = document.querySelector("#setup-form");
 const loginForm = document.querySelector("#login-form");
 const uploadForm = document.querySelector("#upload-form");
@@ -82,23 +85,54 @@ function depositStatusBadge(depositStatus, depositAmountCents) {
   return entry ? `<span class="status-pill ${entry.css}">${entry.label}</span>` : "";
 }
 
+function renderBookingFilter() {
+  const counts = { all: allBookings.length };
+  for (const b of allBookings) {
+    counts[b.status] = (counts[b.status] || 0) + 1;
+  }
+  const filters = [
+    { key: "all", label: "Alle" },
+    { key: "pending", label: "Offen" },
+    { key: "approved", label: "Freigegeben" },
+    { key: "rejected", label: "Abgelehnt" },
+    { key: "cancelled", label: "Storniert" },
+  ];
+  return `<div class="booking-filter">
+    ${filters.map(({ key, label }) => `
+      <button class="filter-pill${activeFilter === key ? " active" : ""}" data-filter="${key}" type="button">
+        ${label}${counts[key] ? ` <span class="filter-count">${counts[key]}</span>` : ""}
+      </button>`).join("")}
+  </div>`;
+}
+
+function renderReferenceImages(images) {
+  if (!images || !images.length) return "";
+  return `<div class="reference-images">
+    ${images.map((url) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">
+      <img src="${escapeHtml(url)}" alt="Referenzbild" loading="lazy" class="reference-thumb" />
+    </a>`).join("")}
+  </div>`;
+}
+
 function renderBookings(bookings) {
-  if (!bookings.length) {
-    bookingList.innerHTML =
-      '<p class="section-text">Aktuell liegen keine Termin-Anfragen vor.</p>';
+  allBookings = bookings;
+  const filtered = activeFilter === "all" ? bookings : bookings.filter((b) => b.status === activeFilter);
+
+  const filterHtml = renderBookingFilter();
+
+  if (!filtered.length) {
+    bookingList.innerHTML = filterHtml + '<p class="section-text">Keine Anfragen in dieser Kategorie.</p>';
     return;
   }
 
-  bookingList.innerHTML = bookings
+  bookingList.innerHTML = filterHtml + filtered
     .map(
       (booking) => `
         <article class="booking-card">
           <div class="booking-card-header">
             <div>
               <h3>${escapeHtml(booking.name)}</h3>
-              <p class="booking-meta">${escapeHtml(booking.email)} · ${escapeHtml(
-                booking.phone || "kein Kontaktkanal"
-              )}</p>
+              <p class="booking-meta">${escapeHtml(booking.email)}${booking.instagram ? ` · ${escapeHtml(booking.instagram)}` : ""}</p>
             </div>
             <div style="display:flex;flex-direction:column;gap:0.4rem;align-items:flex-end;">
               ${bookingStatusBadge(booking.status)}
@@ -109,18 +143,20 @@ function renderBookings(bookings) {
           <p><strong>Körperstelle:</strong> ${escapeHtml(booking.placement || "offen")}</p>
           <p><strong>Größe:</strong> ${escapeHtml(booking.size || "offen")}</p>
           <p>${escapeHtml(booking.designIdea)}</p>
+          ${renderReferenceImages(booking.referenceImages)}
           <div class="booking-actions">
             ${
               booking.status === "approved"
                 ? `
-              ${booking.depositStatus !== "paid" && booking.depositAmountCents ? `<button class="button primary" data-checkout-booking-id="${booking.id}" type="button">Anzahlung anfordern</button>` : ""}
+              ${booking.depositStatus !== "paid" && booking.depositAmountCents ? `<button class="button ghost" data-checkout-booking-id="${booking.id}" type="button">Zahlungslink erneut senden</button>` : ""}
               <button class="button status" data-status="cancelled" data-booking-id="${booking.id}" type="button">Stornieren</button>
               `
-                : `
+                : booking.status === "pending"
+                ? `
               <button class="button status" data-status="approved" data-booking-id="${booking.id}" type="button">Freigeben</button>
-              <button class="button status" data-status="pending" data-booking-id="${booking.id}" type="button">Auf pending</button>
               <button class="button status" data-status="rejected" data-booking-id="${booking.id}" type="button">Ablehnen</button>
               `
+                : ""
             }
           </div>
         </article>
@@ -192,6 +228,13 @@ async function refreshState() {
 }
 
 document.addEventListener("click", async (event) => {
+  const filterPill = event.target.closest("[data-filter]");
+  if (filterPill) {
+    activeFilter = filterPill.dataset.filter;
+    renderBookings(allBookings);
+    return;
+  }
+
   const bookingButton = event.target.closest("[data-booking-id]");
   if (bookingButton) {
     try {

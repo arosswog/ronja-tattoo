@@ -158,16 +158,12 @@ async function loadSlots() {
 async function submitBooking(event) {
   event.preventDefault();
   const formData = new FormData(bookingForm);
-  const payload = Object.fromEntries(formData.entries());
 
   setMessage(bookingMessage, "Anfrage wird gesendet …");
 
   const response = await fetch("/api/bookings", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+    body: formData,
   });
 
   const data = await response.json();
