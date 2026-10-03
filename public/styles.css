@@ -585,13 +585,14 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:
       "photo copy"
-      "info1 copy"
-      "info2 copy";
+      "photo info1"
+      "photo info2";
     align-items: start;
   }
 
   .hero-panel {
     grid-area: photo;
+    align-self: stretch;
   }
 
   .hero-copy {
