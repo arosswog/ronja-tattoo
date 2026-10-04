@@ -127,6 +127,47 @@ test("gallery endpoint returns seeded tattoo artworks", async () => {
   });
 });
 
+test("admin can save a draft slot that stays private until it is published", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const draftResponse = await fetch(`${baseUrl}/api/admin/slots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({
+        startsAt: "2027-01-12T10:00:00.000Z",
+        endsAt: "2027-01-12T13:00:00.000Z",
+        label: "Entwurfspaket",
+        depositAmount: "25",
+        status: "draft",
+      }),
+    });
+
+    assert.equal(draftResponse.status, 201);
+    const draft = await draftResponse.json();
+    assert.equal(draft.status, "draft");
+    assert.deepEqual(await (await fetch(`${baseUrl}/api/slots`)).json(), []);
+
+    const adminSlots = await (
+      await fetch(`${baseUrl}/api/admin/slots`, { headers: { Cookie: cookie } })
+    ).json();
+    assert.equal(adminSlots.length, 1);
+    assert.equal(adminSlots[0].status, "draft");
+
+    const publish = await fetch(`${baseUrl}/api/admin/slots/${draft.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "open" }),
+    });
+    assert.equal(publish.status, 200);
+    assert.equal((await publish.json()).status, "open");
+
+    const publicSlots = await (await fetch(`${baseUrl}/api/slots`)).json();
+    assert.equal(publicSlots.length, 1);
+    assert.equal(publicSlots[0].id, draft.id);
+  });
+});
+
+
 test("booking requests against an open slot are accepted and stored as pending", async () => {
   await withServer(async (baseUrl) => {
     const cookie = await setupAndLogin(baseUrl);

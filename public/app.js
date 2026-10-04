@@ -161,15 +161,24 @@ async function submitBooking(event) {
 
   setMessage(bookingMessage, "Anfrage wird gesendet …");
 
+  // Shrink photos in the browser first: phone photos are usually several MB,
+  // and Vercel rejects request bodies over ~4.5 MB with a non-JSON 413.
+  const fileInput = bookingForm.querySelector('input[type="file"]');
+  if (fileInput && fileInput.files && fileInput.files.length) {
+    const prepared = await RonjaUpload.prepareAll(fileInput.files);
+    formData.delete(fileInput.name);
+    prepared.forEach((item) => {
+      RonjaUpload.assertSize(item);
+      formData.append(fileInput.name, item.blob, item.name);
+    });
+  }
+
   const response = await fetch("/api/bookings", {
     method: "POST",
     body: formData,
   });
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "Anfrage konnte nicht gesendet werden.");
-  }
+  const data = await RonjaUpload.readJson(response);
 
   bookingForm.reset();
   setMessage(bookingMessage, data.message, "status-success");

@@ -112,12 +112,12 @@
             <div class="section-heading compact">
               <div>
                 <p class="eyebrow">Termine</p>
-                <h2>Termin-Paket veröffentlichen</h2>
+                <h2>Termin-Paket erstellen</h2>
               </div>
             </div>
             <p class="section-text">
-              Jeder Tag im Paket kann seine eigene Uhrzeit haben. Beim
-              Absenden werden alle Zeilen als eigene Slots veröffentlicht.
+              Jeder Tag im Paket kann seine eigene Uhrzeit haben. Speichere das Paket zuerst als Entwurf
+              oder veröffentliche alle Zeilen direkt als buchbare Termine.
             </p>
             <form id="slot-form" class="stack-form">
               <div id="slot-batch-rows"></div>
@@ -128,7 +128,14 @@
                 <span>Anzahlung in Euro (gilt für alle Termine in diesem Paket)</span>
                 <input name="depositAmount" type="number" min="0" step="0.01" required />
               </label>
-              <button class="button primary" type="submit">Paket veröffentlichen</button>
+              <div class="booking-actions">
+                <button class="button ghost" type="submit" name="slotAction" value="draft">
+                  Entwurf speichern
+                </button>
+                <button class="button primary" type="submit" name="slotAction" value="open">
+                  Paket veröffentlichen
+                </button>
+              </div>
             </form>
           </article>
 
@@ -183,6 +190,7 @@
       </div>
     </dialog>
 
+    <script src="/upload.js" defer></script>
     <script src="/admin.js" defer></script>
     <script src="/admin-slots.js" defer></script>
   </body>

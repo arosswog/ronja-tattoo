@@ -533,7 +533,8 @@ textarea {
   margin-top: 0.9rem;
 }
 
-.status-pill.pending {
+.status-pill.pending,
+.status-pill.draft {
   color: var(--pending);
 }
 
@@ -565,6 +566,7 @@ textarea {
 }
 
 .status-pill.pending,
+.status-pill.draft,
 .status-pill.reserved,
 .status-pill.booked {
   background: rgba(143, 97, 54, 0.1);

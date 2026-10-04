@@ -157,7 +157,9 @@ function createUploadMiddleware(maxFiles = 1) {
   return multer({
     storage: multer.memoryStorage(),
     limits: {
-      fileSize: 8 * 1024 * 1024,
+      // Must stay below Vercel's ~4.5 MB serverless request-body cap: above it
+      // the platform answers with a plain-text 413 and the function never runs.
+      fileSize: 4 * 1024 * 1024,
       files: maxFiles,
     },
     fileFilter: (_, file, callback) => {
@@ -506,7 +508,11 @@ function createApp() {
     const endsAt = new Date(req.body.endsAt);
     const label = sanitizeText(req.body.label, 120);
     const depositAmountCents = parseEuroToCents(req.body.depositAmount);
+    const status = sanitizeText(req.body.status, 20).toLowerCase() || "open";
 
+    if (!["draft", "open"].includes(status)) {
+      return jsonError(res, 400, "Termine können nur als Entwurf gespeichert oder veröffentlicht werden.");
+    }
     if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
       return jsonError(res, 400, "Bitte Start- und Endzeit angeben.");
     }
@@ -523,6 +529,7 @@ function createApp() {
         endsAt,
         label,
         depositAmountCents,
+        status,
       });
       return res.status(201).json(slot);
     } catch (error) {
@@ -641,6 +648,13 @@ function createApp() {
     }
 
     if (error instanceof multer.MulterError) {
+      if (error.code === "LIMIT_FILE_SIZE") {
+        return jsonError(
+          res,
+          413,
+          "Das Bild ist zu groß zum Hochladen. Bitte wähle ein kleineres Bild oder mach einen Screenshot davon."
+        );
+      }
       return jsonError(res, 400, "Der Upload konnte nicht verarbeitet werden.");
     }
 

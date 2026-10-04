@@ -39,13 +39,9 @@ function showState({ configured, authenticated }) {
 
 async function getJson(url, options) {
   const response = await fetch(url, options);
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || "Unbekannter Fehler.");
-  }
-
-  return data;
+  // Reads JSON, but also survives plain-text/empty responses (e.g. Vercel's
+  // 413 "Request Entity Too Large" page) with a readable message.
+  return RonjaUpload.readJson(response);
 }
 
 const bookingDateFormatter = new Intl.DateTimeFormat("de-DE", {
@@ -366,17 +362,22 @@ loginForm?.addEventListener("submit", async (event) => {
 uploadForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(uploadForm);
+  const fileInput = uploadForm.querySelector('input[type="file"]');
 
   try {
+    // Downscale the photo before upload (Vercel caps request bodies at ~4.5 MB).
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+      const prepared = await RonjaUpload.prepare(fileInput.files[0]);
+      RonjaUpload.assertSize(prepared);
+      formData.delete(fileInput.name);
+      formData.append(fileInput.name, prepared.blob, prepared.name);
+    }
+
     const response = await fetch("/api/admin/gallery", {
       method: "POST",
       body: formData,
     });
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "Upload fehlgeschlagen.");
-    }
+    const data = await RonjaUpload.readJson(response);
 
     setMessage(data.message, "status-success");
     uploadForm.reset();

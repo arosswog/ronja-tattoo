@@ -23,7 +23,8 @@ function formatEuros(cents) {
 
 function slotStatusBadge(status) {
   const labelMap = {
-    open: "Offen",
+    draft: "Entwurf",
+    open: "Veröffentlicht",
     reserved: "Reserviert",
     booked: "Gebucht",
     cancelled: "Zurückgezogen",
@@ -40,11 +41,11 @@ function renderSlots(slots) {
 
   slotList.innerHTML = slots
     .map((slot) => {
-      const canToggle = slot.status === "open" || slot.status === "cancelled";
+      const canToggle = slot.status === "draft" || slot.status === "open" || slot.status === "cancelled";
       const toggleButton = canToggle
         ? slot.status === "open"
           ? `<button class="button status" data-slot-status="cancelled" data-slot-id="${slot.id}" type="button">Zurückziehen</button>`
-          : `<button class="button status" data-slot-status="open" data-slot-id="${slot.id}" type="button">Veröffentlichen</button>`
+          : `<button class="button primary" data-slot-status="open" data-slot-id="${slot.id}" type="button">Veröffentlichen</button>`
         : "";
 
       return `
@@ -125,6 +126,8 @@ slotForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const depositAmount = new FormData(slotForm).get("depositAmount");
+  const requestedStatus = event.submitter?.value === "draft" ? "draft" : "open";
+  const actionLabel = requestedStatus === "draft" ? "gespeichert" : "veröffentlicht";
   const rows = [...(slotBatchRows?.querySelectorAll(".slot-batch-row") || [])];
 
   if (!rows.length) {
@@ -163,6 +166,7 @@ slotForm?.addEventListener("submit", async (event) => {
           endsAt: dateTimeToIso(entry.date, entry.endTime),
           label: entry.label,
           depositAmount,
+          status: requestedStatus,
         }),
       });
       succeeded += 1;
@@ -173,12 +177,12 @@ slotForm?.addEventListener("submit", async (event) => {
 
   if (errors.length) {
     setMessage(
-      `${succeeded} von ${entries.length} Terminen veröffentlicht. Nicht geklappt hat: ${errors.join(" · ")}`,
+      `${succeeded} von ${entries.length} Terminen ${actionLabel}. Nicht geklappt hat: ${errors.join(" · ")}`,
       succeeded > 0 ? "status-success" : "status-error"
     );
   } else {
     setMessage(
-      succeeded === 1 ? "1 Termin veröffentlicht." : `${succeeded} Termine veröffentlicht.`,
+      succeeded === 1 ? `1 Termin ${actionLabel}.` : `${succeeded} Termine ${actionLabel}.`,
       "status-success"
     );
   }
