@@ -164,6 +164,42 @@
       <p class="status-message" id="admin-message" aria-live="polite"></p>
     </main>
 
+    <dialog id="slot-edit-dialog">
+      <div class="glass-card edit-dialog-card">
+        <p class="eyebrow">Terminentwurf</p>
+        <h2>Entwurf bearbeiten</h2>
+        <form id="slot-edit-form" class="stack-form">
+          <input type="hidden" name="slotId" />
+          <label>
+            <span>Tag</span>
+            <input name="date" type="date" required />
+          </label>
+          <label>
+            <span>Bezeichnung (optional)</span>
+            <input name="label" type="text" maxlength="120" />
+          </label>
+          <div class="slot-edit-times">
+            <label>
+              <span>Von</span>
+              <input name="startTime" type="time" required />
+            </label>
+            <label>
+              <span>Bis</span>
+              <input name="endTime" type="time" required />
+            </label>
+          </div>
+          <label>
+            <span>Anzahlung in Euro</span>
+            <input name="depositAmount" type="number" min="0" step="0.01" required />
+          </label>
+          <div class="booking-actions">
+            <button class="button primary" type="submit">Änderungen speichern</button>
+            <button class="button ghost" id="slot-edit-cancel" type="button">Abbrechen</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
     <dialog id="gallery-edit-dialog">
       <div class="glass-card edit-dialog-card">
         <p class="eyebrow">Galerie</p>

@@ -540,6 +540,41 @@ function createApp() {
     }
   });
 
+  app.put("/api/admin/slots/:slotId", requireAdmin, adminMutationLimiter, async (req, res) => {
+    const startsAt = new Date(req.body.startsAt);
+    const endsAt = new Date(req.body.endsAt);
+    const label = sanitizeText(req.body.label, 120);
+    const depositAmountCents = parseEuroToCents(req.body.depositAmount);
+
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+      return jsonError(res, 400, "Bitte Start- und Endzeit angeben.");
+    }
+    if (endsAt <= startsAt) {
+      return jsonError(res, 400, "Das Ende muss nach dem Start liegen.");
+    }
+    if (depositAmountCents === null) {
+      return jsonError(res, 400, "Bitte einen gültigen Anzahlungsbetrag angeben.");
+    }
+
+    try {
+      const updated = await slotStore.updateDraftSlot(req.params.slotId, {
+        startsAt,
+        endsAt,
+        label,
+        depositAmountCents,
+      });
+      if (!updated) {
+        return jsonError(res, 409, "Nur gespeicherte Entwürfe können bearbeitet werden.");
+      }
+      return res.json(updated);
+    } catch (error) {
+      if (error.status === 409) {
+        return jsonError(res, 409, error.message);
+      }
+      throw error;
+    }
+  });
+
   app.patch("/api/admin/slots/:slotId", requireAdmin, adminMutationLimiter, async (req, res) => {
     const nextStatus = sanitizeText(req.body.status, 20).toLowerCase();
     if (!["open", "cancelled"].includes(nextStatus)) {

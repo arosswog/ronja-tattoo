@@ -168,6 +168,69 @@ test("admin can save a draft slot that stays private until it is published", asy
 });
 
 
+test("admin can edit a saved draft without publishing it", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const draftResponse = await fetch(`${baseUrl}/api/admin/slots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({
+        startsAt: "2027-01-13T10:00:00.000Z",
+        endsAt: "2027-01-13T13:00:00.000Z",
+        label: "Alter Entwurf",
+        depositAmount: "25",
+        status: "draft",
+      }),
+    });
+    const draft = await draftResponse.json();
+
+    const edit = await fetch(`${baseUrl}/api/admin/slots/${draft.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({
+        startsAt: "2027-01-20T14:30:00.000Z",
+        endsAt: "2027-01-20T16:30:00.000Z",
+        label: "Geänderter Entwurf",
+        depositAmount: "30",
+      }),
+    });
+
+    assert.equal(edit.status, 200);
+    const updated = await edit.json();
+    assert.equal(updated.startsAt, "2027-01-20T14:30:00.000Z");
+    assert.equal(updated.endsAt, "2027-01-20T16:30:00.000Z");
+    assert.equal(updated.label, "Geänderter Entwurf");
+    assert.equal(updated.depositAmountCents, 3000);
+    assert.equal(updated.status, "draft");
+    assert.deepEqual(await (await fetch(`${baseUrl}/api/slots`)).json(), []);
+  });
+});
+
+
+test("admin cannot edit a slot after it was published", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
+    const edit = await fetch(`${baseUrl}/api/admin/slots/${slot.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({
+        startsAt: "2027-02-20T14:30:00.000Z",
+        endsAt: "2027-02-20T16:30:00.000Z",
+        label: "Darf nicht geändert werden",
+        depositAmount: "30",
+      }),
+    });
+
+    assert.equal(edit.status, 409);
+    assert.deepEqual(await edit.json(), {
+      error: "Nur gespeicherte Entwürfe können bearbeitet werden.",
+    });
+  });
+});
+
+
 test("booking requests against an open slot are accepted and stored as pending", async () => {
   await withServer(async (baseUrl) => {
     const cookie = await setupAndLogin(baseUrl);

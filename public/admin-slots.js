@@ -7,6 +7,10 @@ const slotForm = document.querySelector("#slot-form");
 const slotBatchRows = document.querySelector("#slot-batch-rows");
 const addSlotRowButton = document.querySelector("#add-slot-row");
 const slotList = document.querySelector("#slot-list");
+const slotEditDialog = document.querySelector("#slot-edit-dialog");
+const slotEditForm = document.querySelector("#slot-edit-form");
+const slotEditCancel = document.querySelector("#slot-edit-cancel");
+let currentSlots = [];
 
 const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
   dateStyle: "full",
@@ -41,6 +45,9 @@ function renderSlots(slots) {
 
   slotList.innerHTML = slots
     .map((slot) => {
+      const editButton = slot.status === "draft"
+        ? `<button class="button ghost" data-edit-slot="${slot.id}" type="button">Bearbeiten</button>`
+        : "";
       const canToggle = slot.status === "draft" || slot.status === "open" || slot.status === "cancelled";
       const toggleButton = canToggle
         ? slot.status === "open"
@@ -63,7 +70,7 @@ function renderSlots(slots) {
             </div>
             ${slotStatusBadge(slot.status)}
           </div>
-          <div class="booking-actions">${toggleButton}</div>
+          <div class="booking-actions">${editButton}${toggleButton}</div>
         </article>
       `;
     })
@@ -71,8 +78,8 @@ function renderSlots(slots) {
 }
 
 async function loadSlots() {
-  const slots = await getJson("/api/admin/slots");
-  renderSlots(slots);
+  currentSlots = await getJson("/api/admin/slots");
+  renderSlots(currentSlots);
 }
 
 function createSlotRow() {
@@ -118,6 +125,31 @@ function resetBatchForm() {
 // exactly matching how the customer-facing display renders it back.
 function dateTimeToIso(dateValue, timeValue) {
   return new Date(`${dateValue}T${timeValue}:00`).toISOString();
+}
+
+function slotInputValues(slot) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const partsFor = (value) => Object.fromEntries(
+    formatter
+      .formatToParts(new Date(value))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  const startsAt = partsFor(slot.startsAt);
+  const endsAt = partsFor(slot.endsAt);
+  return {
+    date: `${startsAt.year}-${startsAt.month}-${startsAt.day}`,
+    startTime: `${startsAt.hour}:${startsAt.minute}`,
+    endTime: `${endsAt.hour}:${endsAt.minute}`,
+  };
 }
 
 addSlotRowButton?.addEventListener("click", () => addSlotRow());
@@ -191,7 +223,49 @@ slotForm?.addEventListener("submit", async (event) => {
   await loadSlots();
 });
 
+slotEditCancel?.addEventListener("click", () => slotEditDialog?.close());
+
+slotEditForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(slotEditForm);
+  const slotId = String(formData.get("slotId") || "");
+
+  try {
+    await getJson(`/api/admin/slots/${slotId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startsAt: dateTimeToIso(formData.get("date"), formData.get("startTime")),
+        endsAt: dateTimeToIso(formData.get("date"), formData.get("endTime")),
+        label: formData.get("label"),
+        depositAmount: formData.get("depositAmount"),
+      }),
+    });
+    slotEditDialog?.close();
+    setMessage("Entwurf gespeichert.", "status-success");
+    await loadSlots();
+  } catch (error) {
+    setMessage(error.message, "status-error");
+  }
+});
+
 document.addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-slot]");
+  if (editButton) {
+    const slot = currentSlots.find((item) => item.id === editButton.dataset.editSlot);
+    if (slot && slot.status === "draft" && slotEditForm) {
+      const values = slotInputValues(slot);
+      slotEditForm.elements.slotId.value = slot.id;
+      slotEditForm.elements.date.value = values.date;
+      slotEditForm.elements.label.value = slot.label || "";
+      slotEditForm.elements.startTime.value = values.startTime;
+      slotEditForm.elements.endTime.value = values.endTime;
+      slotEditForm.elements.depositAmount.value = (slot.depositAmountCents / 100).toFixed(2);
+      slotEditDialog?.showModal();
+    }
+    return;
+  }
+
   const removeButton = event.target.closest("[data-remove-row]");
   if (removeButton) {
     removeButton.closest(".slot-batch-row")?.remove();
