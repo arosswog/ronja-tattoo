@@ -163,7 +163,6 @@ img {
 .section-text,
 .form-hint,
 .panel-copy p,
-.feature-list,
 .process-list,
 .site-footer,
 .status-pill,
@@ -304,7 +303,26 @@ label span {
   padding: 1.25rem;
 }
 
-.feature-list,
+.info-card h3 {
+  margin: 0 0 0.75rem;
+}
+
+.info-card p {
+  margin: 0 0 0.6rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.info-card p:last-child {
+  margin-bottom: 0;
+}
+
+.info-card p.info-lead {
+  margin: 0 0 0.5rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
 .process-list {
   display: grid;
   gap: 0.85rem;
@@ -593,6 +611,18 @@ textarea {
   .hero-panel {
     grid-area: photo;
     align-self: stretch;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .hero-portrait {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .hero-portrait img {
+    height: 100%;
+    aspect-ratio: auto;
   }
 
   .hero-copy {
