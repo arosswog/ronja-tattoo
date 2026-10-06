@@ -237,9 +237,27 @@ function createApp({ emailService = emailNotifier } = {}) {
           depositStatus: "paid",
           stripePaymentIntentId: session.payment_intent,
         });
-        emailNotifier.notifyDepositReceived(booking).catch((err) => {
-          console.error("Zahlungsbestätigungs-E-Mail fehlgeschlagen:", err);
-        });
+        try {
+          const results = await emailNotifier.notifyDepositReceived(booking);
+          if (results?.customer) {
+            await emailDeliveryStore.recordAttempt({
+              bookingId: booking.id,
+              kind: "deposit_received_customer",
+              recipient: booking.email,
+              ...results.customer,
+            });
+          }
+          if (results?.owner) {
+            await emailDeliveryStore.recordAttempt({
+              bookingId: booking.id,
+              kind: "deposit_received_owner",
+              recipient: results.owner.recipient || "ronja@rosswog.info",
+              ...results.owner,
+            });
+          }
+        } catch (error) {
+          console.error("Zahlungsbestätigungs-E-Mail fehlgeschlagen:", error);
+        }
       }
     }
 
@@ -247,7 +265,27 @@ function createApp({ emailService = emailNotifier } = {}) {
       const session = event.data.object;
       const booking = await bookingStore.getBookingByStripeSession(session.id);
       if (booking) {
-        await bookingStore.expireBooking(booking.id);
+        // An expired link must not cancel the appointment: keep the booking and
+        // the slot, store Stripe's 30-day recovery link and send it out.
+        const recoveryUrl = session.after_expiration?.recovery?.url || null;
+        const expired = await bookingStore.markDepositExpired(booking.id, recoveryUrl);
+        if (expired && recoveryUrl) {
+          try {
+            const result = await emailNotifier.notifyDepositRecovery(expired, recoveryUrl, {
+              idempotencyKey: `deposit-recovery/${expired.id}/${session.id}`,
+            });
+            if (result) {
+              await emailDeliveryStore.recordAttempt({
+                bookingId: expired.id,
+                kind: "deposit_request",
+                recipient: expired.email,
+                ...result,
+              });
+            }
+          } catch (error) {
+            console.error("Zahlungslink-Wiederherstellung fehlgeschlagen:", error);
+          }
+        }
       }
     }
 
@@ -494,14 +532,18 @@ function createApp({ emailService = emailNotifier } = {}) {
 
   app.get("/api/admin/bookings", requireAdmin, async (_, res) => {
     const bookings = await bookingStore.listBookings();
-    const deliveries = await emailDeliveryStore.customerDeliveriesForBookings(
+    const deliveries = await emailDeliveryStore.deliveriesForBookings(
       bookings.map((booking) => booking.id)
     );
     res.json(
-      bookings.map((booking) => ({
-        ...booking,
-        emailDelivery: deliveries.get(booking.id) || null,
-      }))
+      bookings.map((booking) => {
+        const byKind = deliveries.get(booking.id) || {};
+        return {
+          ...booking,
+          emailDelivery: byKind.customer_confirmation || null,
+          depositEmailDelivery: byKind.deposit_request || null,
+        };
+      })
     );
   });
 
@@ -578,6 +620,9 @@ function createApp({ emailService = emailNotifier } = {}) {
       metadata: { bookingId: booking.id },
       success_url: `${baseUrl}/zahlung-erfolgreich.html`,
       cancel_url: `${baseUrl}/zahlung-abgebrochen.html`,
+      // Stripe keeps a 30-day recovery link for the session, so an expired
+      // payment link can be replaced without touching the appointment.
+      after_expiration: { recovery: { enabled: true } },
     });
 
     await bookingStore.updateDepositStatus(booking.id, {
@@ -585,9 +630,29 @@ function createApp({ emailService = emailNotifier } = {}) {
       stripeCheckoutSessionId: session.id,
     });
 
-    emailNotifier.notifyDepositRequest(booking, session.url).catch((err) => {
-      console.error("Zahlungslink-E-Mail fehlgeschlagen:", err);
-    });
+    try {
+      const result = await emailNotifier.notifyDepositRequest(booking, session.url, {
+        idempotencyKey: `deposit-request/${booking.id}/${session.id}`,
+      });
+      if (result) {
+        await emailDeliveryStore.recordAttempt({
+          bookingId: booking.id,
+          kind: "deposit_request",
+          recipient: booking.email,
+          ...result,
+        });
+      }
+    } catch (error) {
+      console.error("Zahlungslink-E-Mail fehlgeschlagen:", error);
+      await emailDeliveryStore.recordAttempt({
+        bookingId: booking.id,
+        kind: "deposit_request",
+        recipient: booking.email,
+        providerEmailId: null,
+        status: "failed",
+        error,
+      });
+    }
 
     return session;
   }
@@ -611,6 +676,59 @@ function createApp({ emailService = emailNotifier } = {}) {
       await sendCheckoutForBooking(booking);
 
       return res.json({ message: `Zahlungslink wurde an ${booking.email} gesendet.` });
+    }
+  );
+
+  // Re-send the long-lived Stripe recovery link for a booking whose 24h link
+  // expired, without creating yet another short-lived session.
+  app.post(
+    "/api/admin/bookings/:bookingId/resend-recovery",
+    requireAdmin,
+    adminMutationLimiter,
+    async (req, res) => {
+      const booking = await bookingStore.getBooking(req.params.bookingId);
+      if (!booking) {
+        return jsonError(res, 404, "Buchungsanfrage wurde nicht gefunden.");
+      }
+      if (!booking.stripeRecoveryUrl) {
+        return jsonError(
+          res,
+          409,
+          "Für diese Buchung existiert kein gültiger Wiederherstellungslink. Bitte einen neuen Zahlungslink senden."
+        );
+      }
+      if (booking.status !== "approved" || booking.depositStatus === "paid") {
+        return jsonError(res, 409, "Für diese Buchung kann kein Zahlungslink gesendet werden.");
+      }
+
+      let result;
+      try {
+        result = await emailNotifier.notifyDepositRecovery(booking, booking.stripeRecoveryUrl, {
+          idempotencyKey: `deposit-recovery/${booking.id}/${Date.now()}`,
+        });
+      } catch (error) {
+        result = { providerEmailId: null, status: "failed", error };
+      }
+      if (result) {
+        await emailDeliveryStore.recordAttempt({
+          bookingId: booking.id,
+          kind: "deposit_request",
+          recipient: booking.email,
+          ...result,
+        });
+      }
+      if (result && result.status === "failed") {
+        return res.status(502).json({
+          error: "Der Zahlungslink konnte nicht gesendet werden.",
+          depositEmailDelivery: await emailDeliveryStore.deliveryForBookingKind(
+            booking.id,
+            "deposit_request"
+          ),
+        });
+      }
+      return res.json({
+        message: "Wiederherstellungslink wurde an die Kundin gesendet.",
+      });
     }
   );
 

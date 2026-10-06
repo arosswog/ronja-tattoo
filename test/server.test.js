@@ -571,6 +571,91 @@ test("cancelling an approved booking releases its slot", async () => {
   });
 });
 
+test("an expired deposit link keeps the appointment and its slot", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "expired-link@example.com" })),
+    });
+    const [{ id }] = await bookingStore.listBookings();
+    await fetch(`${baseUrl}/api/admin/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "approved" }),
+    });
+
+    const expired = await bookingStore.markDepositExpired(id, "https://recover.example/long-lived");
+
+    assert.equal(expired.status, "approved", "the appointment must survive an expired link");
+    assert.equal(expired.depositStatus, "expired");
+    assert.equal(expired.stripeRecoveryUrl, "https://recover.example/long-lived");
+
+    // The slot must not be offered to other customers again.
+    const publicSlots = await (await fetch(`${baseUrl}/api/slots`)).json();
+    assert.equal(publicSlots.length, 0);
+  });
+});
+
+test("approving a booking reserves its slot again", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "reapprove@example.com" })),
+    });
+    const [{ id }] = await bookingStore.listBookings();
+
+    await fetch(`${baseUrl}/api/admin/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "rejected" }),
+    });
+    assert.equal((await (await fetch(`${baseUrl}/api/slots`)).json()).length, 1);
+
+    await fetch(`${baseUrl}/api/admin/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "approved" }),
+    });
+
+    const publicSlots = await (await fetch(`${baseUrl}/api/slots`)).json();
+    assert.equal(publicSlots.length, 0, "an approved booking must hold its slot");
+  });
+});
+
+test("resending a recovery link without a stored link is refused", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "no-recovery@example.com" })),
+    });
+    const [{ id }] = await bookingStore.listBookings();
+    await fetch(`${baseUrl}/api/admin/bookings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({ status: "approved" }),
+    });
+
+    const response = await fetch(`${baseUrl}/api/admin/bookings/${id}/resend-recovery`, {
+      method: "POST",
+      headers: { Cookie: cookie },
+    });
+
+    assert.equal(response.status, 409);
+  });
+});
+
 test("admin can create a slot and it appears on the public slots endpoint", async () => {
   await withServer(async (baseUrl) => {
     const cookie = await setupAndLogin(baseUrl);

@@ -81,21 +81,21 @@ function depositStatusBadge(depositStatus, depositAmountCents) {
   return entry ? `<span class="status-pill ${entry.css}">${entry.label}</span>` : "";
 }
 
-function emailDeliveryBadge(delivery) {
+function emailDeliveryBadge(delivery, label = "Bestätigung") {
   if (!delivery) {
-    return '<span class="status-pill email-unknown">Bestätigung: nicht protokolliert</span>';
+    return `<span class="status-pill email-unknown">${escapeHtml(label)}: nicht protokolliert</span>`;
   }
   const labels = {
-    pending: "Bestätigung: wird gesendet",
-    sent: "Bestätigung: an Resend übergeben",
-    delivered: "Bestätigung: zugestellt ✓",
-    delivery_delayed: "Bestätigung: verzögert",
-    bounced: "Bestätigung: zurückgewiesen",
-    failed: "Bestätigung: Versandfehler",
-    suppressed: "Bestätigung: unterdrückt",
-    complained: "Bestätigung: als Spam gemeldet",
+    pending: "wird gesendet",
+    sent: "an Resend übergeben",
+    delivered: "zugestellt ✓",
+    delivery_delayed: "verzögert",
+    bounced: "zurückgewiesen",
+    failed: "Versandfehler",
+    suppressed: "unterdrückt",
+    complained: "als Spam gemeldet",
   };
-  return `<span class="status-pill email-${escapeHtml(delivery.status)}">${escapeHtml(
+  return `<span class="status-pill email-${escapeHtml(delivery.status)}">${escapeHtml(label)}: ${escapeHtml(
     labels[delivery.status] || delivery.status
   )}</span>`;
 }
@@ -157,6 +157,7 @@ function renderBookings(bookings) {
               ${bookingStatusBadge(booking.status)}
               ${depositStatusBadge(booking.depositStatus, booking.depositAmountCents)}
               ${emailDeliveryBadge(booking.emailDelivery)}
+              ${emailDeliveryBadge(booking.depositEmailDelivery, "Zahlungslink")}
             </div>
           </div>
           <p><strong>Termin:</strong> ${escapeHtml(formatPreferredDate(booking.preferredDate))}</p>
@@ -164,6 +165,7 @@ function renderBookings(bookings) {
           <p><strong>Größe:</strong> ${escapeHtml(booking.size || "offen")}</p>
           <p>${escapeHtml(booking.designIdea)}</p>
           ${booking.emailDelivery?.error ? `<p class="email-delivery-error"><strong>E-Mail:</strong> ${escapeHtml(booking.emailDelivery.error)}</p>` : ""}
+          ${booking.depositEmailDelivery?.error ? `<p class="email-delivery-error"><strong>Zahlungslink:</strong> ${escapeHtml(booking.depositEmailDelivery.error)}</p>` : ""}
           ${renderReferenceImages(booking.referenceImages)}
           <div class="booking-actions">
             ${canResendConfirmation(booking.emailDelivery) ? `<button class="button ghost" data-resend-confirmation-id="${booking.id}" type="button">Bestätigung erneut senden</button>` : ""}
@@ -171,6 +173,7 @@ function renderBookings(bookings) {
               booking.status === "approved"
                 ? `
               ${booking.depositStatus !== "paid" && booking.depositAmountCents ? `<button class="button ghost" data-checkout-booking-id="${booking.id}" type="button">Zahlungslink erneut senden</button>` : ""}
+              ${booking.depositStatus !== "paid" && booking.stripeRecoveryUrl ? `<button class="button ghost" data-resend-recovery-id="${booking.id}" type="button">Abgelaufenen Link erneuern (30 Tage gültig)</button>` : ""}
               <button class="button status" data-status="cancelled" data-booking-id="${booking.id}" type="button">Stornieren</button>
               `
                 : booking.status === "pending"
@@ -289,6 +292,25 @@ document.addEventListener("click", async (event) => {
     } catch (error) {
       setMessage(error.message, "status-error");
     }
+  }
+
+  const recoveryButton = event.target.closest("[data-resend-recovery-id]");
+  if (recoveryButton) {
+    recoveryButton.disabled = true;
+    recoveryButton.textContent = "Wird gesendet…";
+    try {
+      const data = await getJson(
+        `/api/admin/bookings/${recoveryButton.dataset.resendRecoveryId}/resend-recovery`,
+        { method: "POST" }
+      );
+      setMessage(data.message, "status-success");
+      await loadDashboard();
+    } catch (error) {
+      setMessage(error.message, "status-error");
+      recoveryButton.disabled = false;
+      recoveryButton.textContent = "Abgelaufenen Link erneuern (30 Tage gültig)";
+    }
+    return;
   }
 
   const checkoutButton = event.target.closest("[data-checkout-booking-id]");
