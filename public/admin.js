@@ -81,6 +81,29 @@ function depositStatusBadge(depositStatus, depositAmountCents) {
   return entry ? `<span class="status-pill ${entry.css}">${entry.label}</span>` : "";
 }
 
+function emailDeliveryBadge(delivery) {
+  if (!delivery) {
+    return '<span class="status-pill email-unknown">Bestätigung: nicht protokolliert</span>';
+  }
+  const labels = {
+    pending: "Bestätigung: wird gesendet",
+    sent: "Bestätigung: an Resend übergeben",
+    delivered: "Bestätigung: zugestellt ✓",
+    delivery_delayed: "Bestätigung: verzögert",
+    bounced: "Bestätigung: zurückgewiesen",
+    failed: "Bestätigung: Versandfehler",
+    suppressed: "Bestätigung: unterdrückt",
+    complained: "Bestätigung: als Spam gemeldet",
+  };
+  return `<span class="status-pill email-${escapeHtml(delivery.status)}">${escapeHtml(
+    labels[delivery.status] || delivery.status
+  )}</span>`;
+}
+
+function canResendConfirmation(delivery) {
+  return !delivery || ["bounced", "failed", "suppressed", "complained"].includes(delivery.status);
+}
+
 function renderBookingFilter() {
   const counts = { all: allBookings.length };
   for (const b of allBookings) {
@@ -133,14 +156,17 @@ function renderBookings(bookings) {
             <div style="display:flex;flex-direction:column;gap:0.4rem;align-items:flex-end;">
               ${bookingStatusBadge(booking.status)}
               ${depositStatusBadge(booking.depositStatus, booking.depositAmountCents)}
+              ${emailDeliveryBadge(booking.emailDelivery)}
             </div>
           </div>
           <p><strong>Termin:</strong> ${escapeHtml(formatPreferredDate(booking.preferredDate))}</p>
           <p><strong>Körperstelle:</strong> ${escapeHtml(booking.placement || "offen")}</p>
           <p><strong>Größe:</strong> ${escapeHtml(booking.size || "offen")}</p>
           <p>${escapeHtml(booking.designIdea)}</p>
+          ${booking.emailDelivery?.error ? `<p class="email-delivery-error"><strong>E-Mail:</strong> ${escapeHtml(booking.emailDelivery.error)}</p>` : ""}
           ${renderReferenceImages(booking.referenceImages)}
           <div class="booking-actions">
+            ${canResendConfirmation(booking.emailDelivery) ? `<button class="button ghost" data-resend-confirmation-id="${booking.id}" type="button">Bestätigung erneut senden</button>` : ""}
             ${
               booking.status === "approved"
                 ? `
@@ -228,6 +254,25 @@ document.addEventListener("click", async (event) => {
   if (filterPill) {
     activeFilter = filterPill.dataset.filter;
     renderBookings(allBookings);
+    return;
+  }
+
+  const resendButton = event.target.closest("[data-resend-confirmation-id]");
+  if (resendButton) {
+    resendButton.disabled = true;
+    resendButton.textContent = "Wird gesendet…";
+    try {
+      const data = await getJson(
+        `/api/admin/bookings/${resendButton.dataset.resendConfirmationId}/resend-confirmation`,
+        { method: "POST" }
+      );
+      setMessage(data.message, "status-success");
+      await loadDashboard();
+    } catch (error) {
+      setMessage(error.message, "status-error");
+      resendButton.disabled = false;
+      resendButton.textContent = "Bestätigung erneut senden";
+    }
     return;
   }
 

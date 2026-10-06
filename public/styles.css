@@ -583,6 +583,32 @@ textarea {
   background: rgba(192, 67, 95, 0.1);
 }
 
+.status-pill.email-delivered {
+  color: var(--success);
+  background: rgba(47, 125, 90, 0.1);
+}
+
+.status-pill.email-sent,
+.status-pill.email-pending,
+.status-pill.email-delivery_delayed,
+.status-pill.email-unknown {
+  color: var(--pending);
+  background: rgba(143, 97, 54, 0.1);
+}
+
+.status-pill.email-bounced,
+.status-pill.email-failed,
+.status-pill.email-suppressed,
+.status-pill.email-complained {
+  color: var(--danger);
+  background: rgba(192, 67, 95, 0.1);
+}
+
+.email-delivery-error {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
 .site-footer {
   display: flex;
   justify-content: space-between;

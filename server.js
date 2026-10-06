@@ -13,6 +13,7 @@ const adminStore = require("./lib/store/admin");
 const sessionStore = require("./lib/store/sessions");
 const galleryStore = require("./lib/store/gallery");
 const bookingStore = require("./lib/store/bookings");
+const emailDeliveryStore = require("./lib/store/email-deliveries");
 const slotStore = require("./lib/store/slots");
 
 let stripeClient = null;
@@ -173,7 +174,7 @@ function createUploadMiddleware(maxFiles = 1) {
   });
 }
 
-function createApp() {
+function createApp({ emailService = emailNotifier } = {}) {
   const app = express();
   // Vercel (and most hosting proxies) terminate TLS and forward the real
   // client IP via X-Forwarded-For. Trust a single proxy hop so req.ip is
@@ -252,6 +253,58 @@ function createApp() {
 
     return res.json({ received: true });
   });
+
+  app.post(
+    "/api/webhooks/resend",
+    express.text({ type: "application/json", limit: "256kb" }),
+    async (req, res) => {
+      const webhookSecret = process.env.RESEND_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        return jsonError(res, 503, "E-Mail-Webhook ist nicht konfiguriert.");
+      }
+
+      let event;
+      try {
+        event = emailService.verifyWebhook({
+          payload: req.body,
+          headers: {
+            id: req.get("svix-id"),
+            timestamp: req.get("svix-timestamp"),
+            signature: req.get("svix-signature"),
+          },
+          webhookSecret,
+        });
+      } catch {
+        return jsonError(res, 400, "Ungültige Webhook-Signatur.");
+      }
+
+      const statusByEvent = {
+        "email.sent": "sent",
+        "email.delivered": "delivered",
+        "email.delivery_delayed": "delivery_delayed",
+        "email.bounced": "bounced",
+        "email.failed": "failed",
+        "email.suppressed": "suppressed",
+        "email.complained": "complained",
+      };
+      const status = statusByEvent[event.type];
+      const providerEmailId = event.data?.email_id;
+      if (status && providerEmailId) {
+        const detail =
+          event.data?.bounce?.message ||
+          event.data?.failed?.reason ||
+          event.data?.suppressed?.message ||
+          null;
+        await emailDeliveryStore.updateProviderStatus(
+          providerEmailId,
+          status,
+          detail,
+          event.created_at
+        );
+      }
+      return res.json({ received: true });
+    }
+  );
 
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: false, limit: "1mb" }));
@@ -334,9 +387,35 @@ function createApp() {
         throw error;
       }
 
-      emailNotifier.notifyBookingRequest(booking).catch((error) => {
+      try {
+        const emailResults = await emailService.notifyBookingRequest(booking);
+        if (emailResults?.customer) {
+          await emailDeliveryStore.recordAttempt({
+            bookingId: booking.id,
+            kind: "customer_confirmation",
+            recipient: booking.email,
+            ...emailResults.customer,
+          });
+        }
+        if (emailResults?.owner) {
+          await emailDeliveryStore.recordAttempt({
+            bookingId: booking.id,
+            kind: "owner_notification",
+            recipient: emailResults.owner.recipient || "ronja@rosswog.info",
+            ...emailResults.owner,
+          });
+        }
+      } catch (error) {
         console.error("Buchungs-E-Mail-Versand fehlgeschlagen:", error);
-      });
+        await emailDeliveryStore.recordAttempt({
+          bookingId: booking.id,
+          kind: "customer_confirmation",
+          recipient: booking.email,
+          providerEmailId: null,
+          status: "failed",
+          error,
+        });
+      }
 
       return res.status(201).json({
         message: "Danke! Deine Anfrage ist eingegangen und wartet jetzt auf Freigabe.",
@@ -414,8 +493,64 @@ function createApp() {
   });
 
   app.get("/api/admin/bookings", requireAdmin, async (_, res) => {
-    res.json(await bookingStore.listBookings());
+    const bookings = await bookingStore.listBookings();
+    const deliveries = await emailDeliveryStore.customerDeliveriesForBookings(
+      bookings.map((booking) => booking.id)
+    );
+    res.json(
+      bookings.map((booking) => ({
+        ...booking,
+        emailDelivery: deliveries.get(booking.id) || null,
+      }))
+    );
   });
+
+  app.post(
+    "/api/admin/bookings/:bookingId/resend-confirmation",
+    requireAdmin,
+    adminMutationLimiter,
+    async (req, res) => {
+      const booking = await bookingStore.getBooking(req.params.bookingId);
+      if (!booking) {
+        return jsonError(res, 404, "Buchungsanfrage wurde nicht gefunden.");
+      }
+      const reserved = await emailDeliveryStore.reserveCustomerRetry(booking.id, booking.email);
+      if (!reserved) {
+        return jsonError(
+          res,
+          409,
+          "Für diese Buchungsbestätigung läuft bereits ein Versand oder sie wurde erfolgreich zugestellt."
+        );
+      }
+      let result;
+      try {
+        result = await emailService.sendCustomerConfirmation(booking, {
+          retryKey: `booking-confirmation/${booking.id}/retry/${reserved.attempt_count}`,
+        });
+      } catch (error) {
+        result = { providerEmailId: null, status: "failed", error };
+      }
+      if (!result) {
+        result = {
+          providerEmailId: null,
+          status: "failed",
+          error: "E-Mail-Versand ist derzeit nicht verfügbar.",
+        };
+      }
+      const stored = await emailDeliveryStore.completeCustomerRetry(booking.id, result);
+      const emailDelivery = await emailDeliveryStore.customerDeliveryForBooking(booking.id);
+      if (stored.status === "failed") {
+        return res.status(502).json({
+          error: "Buchungsbestätigung konnte nicht gesendet werden.",
+          emailDelivery,
+        });
+      }
+      return res.json({
+        message: "Buchungsbestätigung erneut an die Kundin gesendet.",
+        emailDelivery,
+      });
+    }
+  );
 
   async function sendCheckoutForBooking(booking) {
     const baseUrl = (process.env.APP_BASE_URL || "https://www.rnjatatts.com").replace(/\/$/, "");

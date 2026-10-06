@@ -40,9 +40,9 @@ async function resetData() {
   await runMigrations(); // no-op for already-applied files, re-seeds gallery_entries
 }
 
-async function withServer(run) {
+async function withServer(run, appOptions = {}) {
   await resetData();
-  const app = createApp();
+  const app = createApp(appOptions);
   const server = http.createServer(app);
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -228,6 +228,173 @@ test("admin cannot edit a slot after it was published", async () => {
       error: "Nur gespeicherte Entwürfe können bearbeitet werden.",
     });
   });
+});
+
+
+test("booking waits for email submission and exposes the customer delivery status to admin", async () => {
+  let sendFinished = false;
+  const fakeEmailService = {
+    async notifyBookingRequest() {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      sendFinished = true;
+      return {
+        customer: { providerEmailId: "email-customer-1", status: "sent", error: null },
+        owner: { providerEmailId: "email-owner-1", status: "sent", error: null },
+      };
+    },
+  };
+
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+    const response = await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id)),
+    });
+
+    assert.equal(response.status, 201);
+    assert.equal(sendFinished, true);
+
+    const bookings = await (
+      await fetch(`${baseUrl}/api/admin/bookings`, { headers: { Cookie: cookie } })
+    ).json();
+    assert.equal(bookings[0].emailDelivery.status, "sent");
+    assert.equal(bookings[0].emailDelivery.attemptCount, 1);
+    assert.equal(bookings[0].emailDelivery.error, null);
+    assert.equal("providerEmailId" in bookings[0].emailDelivery, false);
+  }, { emailService: fakeEmailService });
+});
+
+
+test("admin can resend a failed customer confirmation", async () => {
+  let resendCalls = 0;
+  const fakeEmailService = {
+    async notifyBookingRequest() {
+      return {
+        customer: { providerEmailId: null, status: "failed", error: "mailbox rejected" },
+        owner: { providerEmailId: "email-owner-2", status: "sent", error: null },
+      };
+    },
+    async sendCustomerConfirmation() {
+      resendCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { providerEmailId: "email-customer-retry", status: "sent", error: null };
+    },
+  };
+
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id)),
+    });
+    const before = await (
+      await fetch(`${baseUrl}/api/admin/bookings`, { headers: { Cookie: cookie } })
+    ).json();
+    assert.equal(before[0].emailDelivery.status, "failed");
+
+    const retryUrl = `${baseUrl}/api/admin/bookings/${before[0].id}/resend-confirmation`;
+    const [retry, concurrentRetry] = await Promise.all([
+      fetch(retryUrl, { method: "POST", headers: { Cookie: cookie } }),
+      fetch(retryUrl, { method: "POST", headers: { Cookie: cookie } }),
+    ]);
+    const responsesByStatus = new Map([
+      [retry.status, retry],
+      [concurrentRetry.status, concurrentRetry],
+    ]);
+    assert.deepEqual([...responsesByStatus.keys()].sort(), [200, 409]);
+    const retryPayload = await responsesByStatus.get(200).json();
+    assert.equal(retryPayload.message, "Buchungsbestätigung erneut an die Kundin gesendet.");
+    assert.equal(retryPayload.emailDelivery.status, "sent");
+    assert.equal(retryPayload.emailDelivery.attemptCount, 2);
+    assert.equal(retryPayload.emailDelivery.error, null);
+    assert.match(retryPayload.emailDelivery.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(resendCalls, 1);
+
+    const after = await (
+      await fetch(`${baseUrl}/api/admin/bookings`, { headers: { Cookie: cookie } })
+    ).json();
+    assert.equal(after[0].emailDelivery.status, "sent");
+    assert.equal(after[0].emailDelivery.attemptCount, 2);
+  }, { emailService: fakeEmailService });
+});
+
+
+test("verified Resend webhook updates the stored delivery status", async () => {
+  const fakeEmailService = {
+    async notifyBookingRequest() {
+      return {
+        customer: { providerEmailId: "email-customer-webhook", status: "sent", error: null },
+        owner: { providerEmailId: "email-owner-webhook", status: "sent", error: null },
+      };
+    },
+    verifyWebhook({ payload, headers, webhookSecret }) {
+      assert.equal(headers.id, "webhook-message-1");
+      assert.equal(webhookSecret, "test-webhook-secret");
+      return JSON.parse(payload);
+    },
+  };
+
+  const previousSecret = process.env.RESEND_WEBHOOK_SECRET;
+  process.env.RESEND_WEBHOOK_SECRET = "test-webhook-secret";
+  try {
+    await withServer(async (baseUrl) => {
+      const cookie = await setupAndLogin(baseUrl);
+      const slot = await createOpenSlot(baseUrl, cookie);
+      await fetch(`${baseUrl}/api/bookings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bookingPayload(slot.id)),
+      });
+
+      const webhook = await fetch(`${baseUrl}/api/webhooks/resend`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "svix-id": "webhook-message-1",
+          "svix-timestamp": "1791150000",
+          "svix-signature": "v1,test",
+        },
+        body: JSON.stringify({
+          type: "email.delivered",
+          created_at: "2026-10-04T22:00:00.000Z",
+          data: { email_id: "email-customer-webhook" },
+        }),
+      });
+      assert.equal(webhook.status, 200);
+      assert.deepEqual(await webhook.json(), { received: true });
+
+      const lateFailure = await fetch(`${baseUrl}/api/webhooks/resend`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "svix-id": "webhook-message-1",
+          "svix-timestamp": "1791150001",
+          "svix-signature": "v1,test",
+        },
+        body: JSON.stringify({
+          type: "email.failed",
+          created_at: "2026-10-04T21:59:59.000Z",
+          data: {
+            email_id: "email-customer-webhook",
+            failed: { reason: "late stale failure" },
+          },
+        }),
+      });
+      assert.equal(lateFailure.status, 200);
+
+      const bookings = await (
+        await fetch(`${baseUrl}/api/admin/bookings`, { headers: { Cookie: cookie } })
+      ).json();
+      assert.equal(bookings[0].emailDelivery.status, "delivered");
+    }, { emailService: fakeEmailService });
+  } finally {
+    if (previousSecret === undefined) delete process.env.RESEND_WEBHOOK_SECRET;
+    else process.env.RESEND_WEBHOOK_SECRET = previousSecret;
+  }
 });
 
 
