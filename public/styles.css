@@ -297,6 +297,11 @@ label span {
   margin: 0;
 }
 
+/* display:flex above would defeat the hidden attribute without this. */
+.slot-delete-confirm[hidden] {
+  display: none;
+}
+
 .slot-delete-warning {
   color: var(--danger);
   font-size: 0.95rem;
