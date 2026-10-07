@@ -828,6 +828,60 @@ function createApp({ emailService = emailNotifier } = {}) {
     }
   });
 
+  app.get("/api/admin/slots/:slotId/deletion-impact", requireAdmin, async (req, res) => {
+    const slot = await slotStore.getSlot(req.params.slotId);
+    if (!slot) {
+      return jsonError(res, 404, "Dieser Termin existiert nicht mehr.");
+    }
+    const impact = await slotStore.deletionImpact(slot.id);
+    return res.json({ slot, ...impact, requiresDoubleConfirmation: impact.bookingCount > 0 });
+  });
+
+  app.delete("/api/admin/slots/:slotId", requireAdmin, adminMutationLimiter, async (req, res) => {
+    const slot = await slotStore.getSlot(req.params.slotId);
+    if (!slot) {
+      return jsonError(res, 404, "Dieser Termin existiert nicht mehr.");
+    }
+
+    const impact = await slotStore.deletionImpact(slot.id);
+    const confirmation = sanitizeText(req.body?.confirmation, 40);
+
+    if (impact.bookingCount > 0) {
+      // Step two of the double confirmation: the UI has to acknowledge that a
+      // real customer's appointment (possibly with a paid deposit) disappears.
+      if (confirmation !== "DELETE_BOOKED") {
+        return res.status(409).json({
+          error:
+            "Auf diesem Termin liegt eine Buchung. Bitte die doppelte Bestätigung bestätigen.",
+          requiresDoubleConfirmation: true,
+          ...impact,
+        });
+      }
+      const archived = await slotStore.archiveSlot(slot.id);
+      if (!archived) {
+        return jsonError(res, 404, "Dieser Termin existiert nicht mehr.");
+      }
+      return res.json({
+        message: "Termin wurde gelöscht. Der Zahlungsbeleg bleibt intern erhalten.",
+        archived: true,
+      });
+    }
+
+    if (confirmation !== "DELETE") {
+      return res.status(409).json({
+        error: "Bitte den Termin zuerst bestätigen.",
+        requiresDoubleConfirmation: false,
+        ...impact,
+      });
+    }
+
+    const deleted = await slotStore.deleteSlot(slot.id);
+    if (!deleted) {
+      return jsonError(res, 404, "Dieser Termin existiert nicht mehr.");
+    }
+    return res.json({ message: "Termin wurde gelöscht.", archived: false });
+  });
+
   app.patch("/api/admin/slots/:slotId", requireAdmin, adminMutationLimiter, async (req, res) => {
     const nextStatus = sanitizeText(req.body.status, 20).toLowerCase();
     if (!["open", "cancelled"].includes(nextStatus)) {

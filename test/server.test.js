@@ -656,6 +656,123 @@ test("resending a recovery link without a stored link is refused", async () => {
   });
 });
 
+test("a free appointment is deleted for good", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+    const adminHeaders = { "Content-Type": "application/json", Cookie: cookie };
+
+    const unconfirmed = await fetch(`${baseUrl}/api/admin/slots/${slot.id}`, {
+      method: "DELETE",
+      headers: adminHeaders,
+      body: JSON.stringify({}),
+    });
+    assert.equal(unconfirmed.status, 409);
+
+    const response = await fetch(`${baseUrl}/api/admin/slots/${slot.id}`, {
+      method: "DELETE",
+      headers: adminHeaders,
+      body: JSON.stringify({ confirmation: "DELETE" }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).archived, false);
+
+    assert.equal(
+      (await (await fetch(`${baseUrl}/api/admin/slots`, { headers: { Cookie: cookie } })).json()).length,
+      0
+    );
+    assert.equal((await (await fetch(`${baseUrl}/api/slots`)).json()).length, 0);
+
+    // Nothing to preserve here, so the row is really gone.
+    const { rows } = await query("SELECT count(*)::int AS n FROM slots WHERE id = $1", [slot.id]);
+    assert.equal(rows[0].n, 0);
+  });
+});
+
+test("a booked appointment needs the second confirmation and keeps its payment record", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+    const adminHeaders = { "Content-Type": "application/json", Cookie: cookie };
+
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "paid-delete@example.com" })),
+    });
+    const [{ id }] = await bookingStore.listBookings();
+    await bookingStore.updateDepositStatus(id, {
+      depositStatus: "paid",
+      stripePaymentIntentId: "pi_test_delete",
+    });
+
+    const firstAttempt = await fetch(`${baseUrl}/api/admin/slots/${slot.id}`, {
+      method: "DELETE",
+      headers: adminHeaders,
+      body: JSON.stringify({}),
+    });
+    assert.equal(firstAttempt.status, 409);
+    const impact = await firstAttempt.json();
+    assert.equal(impact.requiresDoubleConfirmation, true);
+    assert.equal(impact.depositPaid, true);
+
+    const second = await fetch(`${baseUrl}/api/admin/slots/${slot.id}`, {
+      method: "DELETE",
+      headers: adminHeaders,
+      body: JSON.stringify({ confirmation: "DELETE_BOOKED" }),
+    });
+    assert.equal(second.status, 200);
+    assert.equal((await second.json()).archived, true);
+
+    // Gone from Ronja's appointment list and from her booking list.
+    assert.equal(
+      (await (await fetch(`${baseUrl}/api/admin/slots`, { headers: { Cookie: cookie } })).json()).length,
+      0
+    );
+    assert.equal(
+      (await (await fetch(`${baseUrl}/api/admin/bookings`, { headers: { Cookie: cookie } })).json()).length,
+      0
+    );
+
+    // The money record survives.
+    const { rows } = await query(
+      "SELECT deposit_status, stripe_payment_intent_id, archived_at FROM bookings WHERE id = $1",
+      [id]
+    );
+    assert.equal(rows[0].deposit_status, "paid");
+    assert.equal(rows[0].stripe_payment_intent_id, "pi_test_delete");
+    assert.ok(rows[0].archived_at, "booking must be archived, not destroyed");
+  });
+});
+
+test("a deleted appointment can no longer be booked", async () => {
+  await withServer(async (baseUrl) => {
+    const cookie = await setupAndLogin(baseUrl);
+    const slot = await createOpenSlot(baseUrl, cookie);
+    const adminHeaders = { "Content-Type": "application/json", Cookie: cookie };
+
+    await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "archived-slot@example.com" })),
+    });
+
+    await fetch(`${baseUrl}/api/admin/slots/${slot.id}`, {
+      method: "DELETE",
+      headers: adminHeaders,
+      body: JSON.stringify({ confirmation: "DELETE_BOOKED" }),
+    });
+
+    const staleBooking = await fetch(`${baseUrl}/api/bookings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload(slot.id, { email: "stale@example.com" })),
+    });
+
+    assert.equal(staleBooking.status, 404, "a stale slot id must not be bookable");
+  });
+});
+
 test("admin can create a slot and it appears on the public slots endpoint", async () => {
   await withServer(async (baseUrl) => {
     const cookie = await setupAndLogin(baseUrl);

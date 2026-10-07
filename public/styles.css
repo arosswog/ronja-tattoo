@@ -261,6 +261,48 @@ label span {
   font-size: 0.9rem;
 }
 
+.button.danger {
+  background: var(--danger);
+  color: #ffffff;
+  box-shadow: 0 10px 26px rgba(192, 67, 95, 0.25);
+}
+
+.button.danger:hover:not(:disabled) {
+  background: #a83650;
+}
+
+.button.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.slot-filter,
+.slot-delete-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0 0 0.9rem;
+  font-size: 0.95rem;
+}
+
+.slot-filter {
+  align-items: center;
+  color: var(--muted, #6d5f66);
+}
+
+.slot-filter input,
+.slot-delete-confirm input {
+  width: auto;
+  margin: 0;
+}
+
+.slot-delete-warning {
+  color: var(--danger);
+  font-size: 0.95rem;
+  margin: 0 0 1rem;
+}
+
 .dashboard-grid {
   display: grid;
   gap: 1rem;

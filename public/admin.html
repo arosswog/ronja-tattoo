@@ -146,6 +146,10 @@
                 <h2>Alle Slots</h2>
               </div>
             </div>
+            <label class="slot-filter">
+              <input type="checkbox" id="hide-past-slots" />
+              <span>Vergangene Termine ausblenden</span>
+            </label>
             <div class="booking-list" id="slot-list"></div>
           </article>
         </section>
@@ -197,6 +201,25 @@
             <button class="button ghost" id="slot-edit-cancel" type="button">Abbrechen</button>
           </div>
         </form>
+      </div>
+    </dialog>
+
+    <dialog id="slot-delete-dialog">
+      <div class="glass-card edit-dialog-card">
+        <p class="eyebrow">Termin löschen</p>
+        <h2 id="slot-delete-title">Termin löschen?</h2>
+        <p class="section-text" id="slot-delete-summary"></p>
+        <p class="slot-delete-warning" id="slot-delete-warning"></p>
+        <label class="slot-delete-confirm" id="slot-delete-confirm-wrap">
+          <input type="checkbox" id="slot-delete-acknowledge" />
+          <span>Ja, ich habe geprüft, dass es der richtige Termin ist.</span>
+        </label>
+        <div class="booking-actions">
+          <button class="button danger" id="slot-delete-confirm" type="button" disabled>
+            Endgültig löschen
+          </button>
+          <button class="button ghost" id="slot-delete-cancel" type="button">Abbrechen</button>
+        </div>
       </div>
     </dialog>
 

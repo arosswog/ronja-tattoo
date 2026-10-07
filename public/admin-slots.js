@@ -10,7 +10,17 @@ const slotList = document.querySelector("#slot-list");
 const slotEditDialog = document.querySelector("#slot-edit-dialog");
 const slotEditForm = document.querySelector("#slot-edit-form");
 const slotEditCancel = document.querySelector("#slot-edit-cancel");
+const hidePastSlots = document.querySelector("#hide-past-slots");
+const slotDeleteDialog = document.querySelector("#slot-delete-dialog");
+const slotDeleteTitle = document.querySelector("#slot-delete-title");
+const slotDeleteSummary = document.querySelector("#slot-delete-summary");
+const slotDeleteWarning = document.querySelector("#slot-delete-warning");
+const slotDeleteAcknowledge = document.querySelector("#slot-delete-acknowledge");
+const slotDeleteConfirmWrap = document.querySelector("#slot-delete-confirm-wrap");
+const slotDeleteConfirmButton = document.querySelector("#slot-delete-confirm");
+const slotDeleteCancel = document.querySelector("#slot-delete-cancel");
 let currentSlots = [];
+let pendingDeletion = null;
 
 const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
   dateStyle: "full",
@@ -38,12 +48,24 @@ function slotStatusBadge(status) {
 }
 
 function renderSlots(slots) {
-  if (!slots.length) {
-    slotList.innerHTML = '<p class="section-text">Noch keine Slots angelegt.</p>';
+  const pastCutoff = Date.now();
+  const visible = hidePastSlots?.checked
+    ? slots.filter((slot) => new Date(slot.endsAt).getTime() >= pastCutoff)
+    : slots;
+  const hiddenCount = slots.length - visible.length;
+
+  if (!visible.length) {
+    slotList.innerHTML = hiddenCount
+      ? `<p class="section-text">Keine aktuellen Termine. ${hiddenCount} vergangene Termine sind ausgeblendet.</p>`
+      : '<p class="section-text">Noch keine Slots angelegt.</p>';
     return;
   }
 
-  slotList.innerHTML = slots
+  const hiddenHint = hiddenCount
+    ? `<p class="section-text">${hiddenCount} vergangene Termine sind ausgeblendet.</p>`
+    : "";
+
+  slotList.innerHTML = hiddenHint + visible
     .map((slot) => {
       const editButton = slot.status === "draft"
         ? `<button class="button ghost" data-edit-slot="${slot.id}" type="button">Bearbeiten</button>`
@@ -54,6 +76,7 @@ function renderSlots(slots) {
           ? `<button class="button status" data-slot-status="cancelled" data-slot-id="${slot.id}" type="button">Zurückziehen</button>`
           : `<button class="button primary" data-slot-status="open" data-slot-id="${slot.id}" type="button">Veröffentlichen</button>`
         : "";
+      const deleteButton = `<button class="button danger" data-delete-slot="${slot.id}" type="button">Löschen</button>`;
 
       return `
         <article class="booking-card">
@@ -70,7 +93,7 @@ function renderSlots(slots) {
             </div>
             ${slotStatusBadge(slot.status)}
           </div>
-          <div class="booking-actions">${editButton}${toggleButton}</div>
+          <div class="booking-actions">${editButton}${toggleButton}${deleteButton}</div>
         </article>
       `;
     })
@@ -225,6 +248,69 @@ slotForm?.addEventListener("submit", async (event) => {
 
 slotEditCancel?.addEventListener("click", () => slotEditDialog?.close());
 
+hidePastSlots?.addEventListener("change", () => renderSlots(currentSlots));
+
+// Step one of the delete flow: ask the server what would disappear, then show
+// that answer. A booked appointment needs the second step (checkbox + final
+// button); a free one is gone after this one dialog.
+function openSlotDeleteDialog(slot, impact) {
+  pendingDeletion = { slot, impact };
+  const when = dateTimeFormatter.format(new Date(slot.startsAt));
+  const booked = impact.bookingCount > 0;
+
+  slotDeleteTitle.textContent = booked ? "Gebuchten Termin löschen?" : "Termin löschen?";
+  slotDeleteSummary.textContent = booked
+    ? `${when}: Auf diesem Termin liegt die Buchung von ${impact.booking.name}. Beim Löschen verschwindet der Termin aus deiner Liste und von der Website.`
+    : `${when}: Dieser Termin ist frei und wird endgültig entfernt.`;
+
+  if (booked && impact.depositPaid) {
+    slotDeleteWarning.textContent = `Achtung: Es wurde bereits eine Anzahlung von ${formatEuros(
+      impact.depositAmountCents
+    )} bezahlt. Der Zahlungsbeleg bleibt intern erhalten.`;
+  } else if (booked) {
+    slotDeleteWarning.textContent = "Achtung: Auf diesem Termin liegt eine Buchung.";
+  } else {
+    slotDeleteWarning.textContent = "";
+  }
+
+  slotDeleteConfirmWrap.hidden = !booked;
+  slotDeleteAcknowledge.checked = false;
+  slotDeleteConfirmButton.disabled = booked;
+  slotDeleteConfirmButton.textContent = booked ? "Endgültig löschen" : "Löschen";
+  slotDeleteDialog?.showModal();
+}
+
+slotDeleteAcknowledge?.addEventListener("change", () => {
+  slotDeleteConfirmButton.disabled = !slotDeleteAcknowledge.checked;
+});
+
+slotDeleteCancel?.addEventListener("click", () => {
+  pendingDeletion = null;
+  slotDeleteDialog?.close();
+});
+
+slotDeleteConfirmButton?.addEventListener("click", async () => {
+  if (!pendingDeletion) return;
+  const { slot, impact } = pendingDeletion;
+  slotDeleteConfirmButton.disabled = true;
+  try {
+    const data = await getJson(`/api/admin/slots/${slot.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmation: impact.bookingCount > 0 ? "DELETE_BOOKED" : "DELETE",
+      }),
+    });
+    pendingDeletion = null;
+    slotDeleteDialog?.close();
+    setMessage(data.message, "status-success");
+    await loadSlots();
+  } catch (error) {
+    setMessage(error.message, "status-error");
+    slotDeleteConfirmButton.disabled = impact.bookingCount > 0;
+  }
+});
+
 slotEditForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(slotEditForm);
@@ -250,6 +336,19 @@ slotEditForm?.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("click", async (event) => {
+  const deleteButton = event.target.closest("[data-delete-slot]");
+  if (deleteButton) {
+    const slot = currentSlots.find((item) => item.id === deleteButton.dataset.deleteSlot);
+    if (!slot) return;
+    try {
+      const impact = await getJson(`/api/admin/slots/${slot.id}/deletion-impact`);
+      openSlotDeleteDialog(slot, impact);
+    } catch (error) {
+      setMessage(error.message, "status-error");
+    }
+    return;
+  }
+
   const editButton = event.target.closest("[data-edit-slot]");
   if (editButton) {
     const slot = currentSlots.find((item) => item.id === editButton.dataset.editSlot);
