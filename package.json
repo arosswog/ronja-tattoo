@@ -1,6 +1,6 @@
 {
   "name": "ronja-tattoo",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Ronja Tattoo Booking Site",
   "main": "server.js",
   "engines": {

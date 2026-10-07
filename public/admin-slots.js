@@ -304,7 +304,11 @@ slotDeleteConfirmButton?.addEventListener("click", async () => {
     pendingDeletion = null;
     slotDeleteDialog?.close();
     setMessage(data.message, "status-success");
-    await loadSlots();
+    if (typeof loadDashboard === "function") {
+      await loadDashboard();
+    } else {
+      await loadSlots();
+    }
   } catch (error) {
     setMessage(error.message, "status-error");
     slotDeleteConfirmButton.disabled = impact.bookingCount > 0;

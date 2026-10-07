@@ -169,6 +169,7 @@ function renderBookings(bookings) {
           ${renderReferenceImages(booking.referenceImages)}
           <div class="booking-actions">
             ${canResendConfirmation(booking.emailDelivery) ? `<button class="button ghost" data-resend-confirmation-id="${booking.id}" type="button">Bestätigung erneut senden</button>` : ""}
+            ${booking.slotId ? `<button class="button danger" data-delete-slot="${booking.slotId}" type="button">Anfrage aus Übersicht entfernen</button>` : ""}
             ${
               booking.status === "approved"
                 ? `
